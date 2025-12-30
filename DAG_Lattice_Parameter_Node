@@ -1,0 +1,232 @@
+"""
+Lattice parameter extraction from XRD/XRF scan data.
+
+This script:
+1. Loads scan_point_*.dat files from specified folders
+2. Extracts peak Q positions within predefined ranges
+3. Computes d-spacings
+4. Uses linear regression (forced through origin) to estimate
+   the average cubic lattice parameter
+5. Saves results to Excel and generates diagnostic plots
+"""
+
+import os
+import glob
+import re
+from typing import List, Tuple
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+
+
+# =============================================================================
+# USER CONFIGURATION
+# =============================================================================
+
+FOLDER_PATHS: List[str] = [
+    "/Users/hpark108/Downloads/Resources (2)/JHAMAC00003-S2R2C1_68efdf9ebe3476695206a195_0_399_2025-11-12_20-08-12"
+]
+
+# Optional scan-point slicing (e.g., slice(0, 255))
+SCAN_SLICE = slice(None)
+
+# Q ranges (same units as input files)
+Q_RANGES: List[Tuple[float, float]] = [
+    (29.0, 32.0),
+    (34.0, 36.0),
+    (47.0, 51.0),
+]
+
+# Corresponding Miller indices (h, k, l)
+HKL_RANGES: List[Tuple[int, int, int]] = [
+    (1, 1, 1),
+    (2, 0, 0),
+    (2, 2, 0),
+]
+
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def extract_scan_number(file_path: str) -> int:
+    """
+    Extract scan-point index from filename.
+
+    Parameters
+    ----------
+    file_path : str
+        Full path to a scan_point_*.dat file.
+
+    Returns
+    -------
+    int
+        Scan-point index. Returns -1 if not found.
+    """
+    match = re.search(r"scan_point_(\d+)\.dat", file_path)
+    return int(match.group(1)) if match else -1
+
+
+def find_peak_q(
+    q: np.ndarray,
+    intensity: np.ndarray,
+    q_min: float,
+    q_max: float,
+) -> float:
+    """
+    Find Q position of maximum intensity within a given Q range.
+
+    Parameters
+    ----------
+    q : np.ndarray
+        Q values.
+    intensity : np.ndarray
+        Intensity values.
+    q_min : float
+        Lower bound of Q range.
+    q_max : float
+        Upper bound of Q range.
+
+    Returns
+    -------
+    float
+        Q position of peak maximum. NaN if range is empty.
+    """
+    mask = (q >= min(q_min, q_max)) & (q <= max(q_min, q_max))
+    if not np.any(mask):
+        return np.nan
+
+    idx = np.argmax(intensity[mask])
+    return q[mask][idx]
+
+
+# =============================================================================
+# CORE PROCESSING
+# =============================================================================
+
+def process_folder(folder_path: str) -> None:
+    """
+    Process all scan_point_*.dat files in a folder and compute
+    average lattice parameters.
+
+    Parameters
+    ----------
+    folder_path : str
+        Path to the folder containing scan_point_*.dat files.
+
+    Notes
+    -----
+    - Assumes cubic symmetry:
+        d_hkl = a / sqrt(h^2 + k^2 + l^2)
+    - Linear regression is performed with zero intercept.
+    """
+    file_pattern = os.path.join(folder_path, "scan_point_*.dat")
+    files = sorted(glob.glob(file_pattern), key=extract_scan_number)
+    files = files[SCAN_SLICE]
+
+    if not files:
+        print(f"No .dat files found in {folder_path}. Skipping.")
+        return
+
+    records = []
+
+    # -------------------------------------------------------------------------
+    # Peak extraction
+    # -------------------------------------------------------------------------
+    for file_path in files:
+        data = np.loadtxt(file_path, skiprows=1)
+        q_vals = data[:, 0]
+        intensity = data[:, 1]
+
+        record = {"scan_point": os.path.basename(file_path)}
+
+        for (q_min, q_max), (h, k, l) in zip(Q_RANGES, HKL_RANGES):
+            col_name = f"Qmax_{q_min:.1f}_{q_max:.1f}"
+            record[col_name] = find_peak_q(
+                q_vals, intensity, q_min, q_max
+            )
+
+        records.append(record)
+
+    df = pd.DataFrame(records)
+
+    # -------------------------------------------------------------------------
+    # d-spacing calculation
+    # -------------------------------------------------------------------------
+    inv_sqrt_hkl = []
+    d_columns = []
+
+    for (q_min, q_max), (h, k, l) in zip(Q_RANGES, HKL_RANGES):
+        q_col = f"Qmax_{q_min:.1f}_{q_max:.1f}"
+        d_col = f"d_nm_{q_min:.1f}_{q_max:.1f}"
+
+        df[d_col] = 2.0 * np.pi / df[q_col]
+        d_columns.append(d_col)
+        inv_sqrt_hkl.append(1.0 / np.sqrt(h**2 + k**2 + l**2))
+
+    # -------------------------------------------------------------------------
+    # Lattice parameter regression
+    # -------------------------------------------------------------------------
+    a_nm = []
+
+    for _, row in df.iterrows():
+        d_vals = pd.to_numeric(row[d_columns], errors="coerce").values
+        valid = ~np.isnan(d_vals)
+
+        if np.sum(valid) < 2:
+            a_nm.append(np.nan)
+            continue
+
+        X = np.array(inv_sqrt_hkl)[valid].reshape(-1, 1)
+        y = d_vals[valid]
+
+        model = LinearRegression(fit_intercept=False)
+        model.fit(X, y)
+
+        a_nm.append(model.coef_[0])
+
+    df["a_nm_avg"] = a_nm
+    df["a_A_avg"] = df["a_nm_avg"] * 10.0  # nm → Å
+
+    # -------------------------------------------------------------------------
+    # Output
+    # -------------------------------------------------------------------------
+    folder_name = os.path.basename(os.path.normpath(folder_path))
+    output_path = os.path.join(
+        folder_path, f"{folder_name}_lattice_parameters.xlsx"
+    )
+    df.to_excel(output_path, index=False)
+
+    print(f"✓ Results saved to {output_path}")
+
+    # -------------------------------------------------------------------------
+    # Plot
+    # -------------------------------------------------------------------------
+    plt.figure(figsize=(10, 4))
+    plt.plot(df["a_A_avg"], marker="o", linewidth=1.5)
+    plt.xticks(range(len(df)), df["scan_point"], rotation=90)
+    plt.xlabel("Scan Point")
+    plt.ylabel(r"Average Lattice Parameter $a$ (Å)")
+    plt.title(f"Average FCC Lattice Parameter – {folder_name}")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+def main() -> None:
+    """Main execution loop."""
+    print(f"Processing {len(FOLDER_PATHS)} folder(s).")
+
+    for path in FOLDER_PATHS:
+        print(f"\nProcessing folder:\n  {path}")
+        process_folder(path)
+
+
+if __name__ == "__main__":
+    main()
