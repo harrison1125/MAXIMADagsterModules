@@ -2,14 +2,14 @@ import os
 import fabio
 import numpy as np
 import matplotlib.pyplot as plt
-from dagster import asset
+# from dagster import asset
 from pyFAI.integrator.azimuthal import AzimuthalIntegrator
 
 
 import Inputs
 # import ConverterXRFtoMCA  # currently unused
 
-@asset
+# @asset
 def azimuthally_integrate_files(
     input_directory: str,
     poni_file: str,
@@ -72,20 +72,23 @@ def azimuthally_integrate_files(
 
                 # pyFAI integrate2d returns:
                 # I (2D), radial axis, azimuthal axis
-                intensity, radial, azimuth = ai.integrate2d(
-                    image,
-                    azimuth_range=azimuth_range,
-                    npt_rad=npt_rad,
-                    npt_azim=npt_azim,
-                )
+                two_theta, intensity = ai.integrate1d(image, npt = 10000)
+                # intensity, radial, azimuth = ai.integrate2d(
+                #    image,
+                #    azimuth_range=azimuth_range,
+                #    npt_rad=npt_rad,
+                #    npt_azim=npt_azim,
+                #)
 
                 # Save numerical output
                 np.savetxt(
                     output_dat,
-                    np.column_stack((intensity.ravel(),)),
-                    header="Intensity",
+                    np.column_stack((two_theta, intensity)),
+                    header="2theta Intensity",
                     comments="",
                 )
+
+                # Work in progress: some leftover issues from trying to form integrator2d
 
                 # Plot azimuthal dependence (example slice)
                 plt.figure(figsize=(8, 5))
@@ -110,10 +113,8 @@ def azimuthally_integrate_files(
             except Exception as exc:
                 print(f"Failed to process {input_path}: {exc}")
         
-            
-    return results
 if __name__ == "__main__":
     azimuthally_integrate_files(
         input_directory=Inputs.root_dir,
         poni_file=Inputs.poni_file,
-        )
+              )
