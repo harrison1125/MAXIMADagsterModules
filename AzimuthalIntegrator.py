@@ -2,7 +2,7 @@ import os
 import fabio
 import numpy as np
 import matplotlib.pyplot as plt
-# from dagster import asset
+from dagster import asset
 from pyFAI.integrator.azimuthal import AzimuthalIntegrator
 
 

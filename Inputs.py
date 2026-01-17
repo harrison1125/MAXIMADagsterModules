@@ -12,6 +12,6 @@ poni_file : str
 config_path : str
     Path to configuration file for XRF. Generated through PYMCA.
 """
-root_dir = '/Users/hpark108/Desktop/Immediate/20250930 updated XRF CuTi Samples for Rohit'
-poni_file = '/Users/hpark108/Desktop/Immediate/updated xrf.poni'
+root_dir = '/Users/hpark108/Projects/MAXIMA Paper Data/Data in MAXIMA Paper/20250723 MAXIMA SNR and STDD Figures/Al2O3_std_MAXIMA_STDD_-30_430_1_1_0001-01-01_00-00-00+00-00'
+poni_file = '/Users/hpark108/Projects/MAXIMA Paper Data/Data in MAXIMA Paper/20250723 MAXIMA SNR and STDD Figures/Al2O3_std_MAXIMA_STDD_-30_430_1_1_0001-01-01_00-00-00+00-00/155poni.poni'
 config_path = '/Users/hpark108/Desktop/Immediate/aimdpaper.cfg'
