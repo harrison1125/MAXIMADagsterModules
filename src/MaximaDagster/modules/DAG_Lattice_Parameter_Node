@@ -26,7 +26,8 @@ from sklearn.linear_model import LinearRegression
 # =============================================================================
 
 FOLDER_PATHS: List[str] = [
-    "/Users/hpark108/Downloads/Resources (2)/JHAMAC00003-S2R2C1_68efdf9ebe3476695206a195_0_399_2025-11-12_20-08-12"
+    "path/to/folder1",
+    "path/to/folder2"
 ]
 
 # Optional scan-point slicing (e.g., slice(0, 255))
