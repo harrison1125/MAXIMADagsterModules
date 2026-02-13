@@ -205,4 +205,4 @@ __marimo__/
 
 # Dagster
 .dg/
-
+.*dagster*
