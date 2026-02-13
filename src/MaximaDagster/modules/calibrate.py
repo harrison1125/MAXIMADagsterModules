@@ -260,6 +260,34 @@ class MaximaCalibrator:
             
         return final_geometry
 
+
+def calibrate_image(
+    image_path: str,
+    model_path: str,
+    output_path: str = None,
+    calibrant: str = "alpha_Al2O3",
+    detector: str = "Eiger2Cdte_1M",
+    wavelength: float = 0.5121261413149675e-10,
+    image_size: int = 1056,
+    backbone: str = "microsoft/swin-base-patch4-window12-384-in22k",
+    hidden_dim: int = 1024,
+    device: str = None,
+) -> Geometry:
+    """
+    Convenience wrapper for asset usage.
+    """
+    calibrator = MaximaCalibrator(
+        model_path=model_path,
+        calibrant=calibrant,
+        detector=detector,
+        wavelength=wavelength,
+        image_size=image_size,
+        backbone=backbone,
+        hidden_dim=hidden_dim,
+        device=device,
+    )
+    return calibrator.calibrate(image_path=image_path, output_path=output_path)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MaximaCalibrator: MaxSWIN + pyFAI")
     parser.add_argument("--image", required=True, help="Input image file")
@@ -279,3 +307,9 @@ if __name__ == "__main__":
     )
 
     result = calibrator.calibrate(args.image, args.output)
+
+
+__all__ = [
+    "MaximaCalibrator",
+    "calibrate_image",
+]

@@ -1,120 +1,100 @@
-import os
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
+
 import fabio
 import numpy as np
 import matplotlib.pyplot as plt
-from dagster import asset
 from pyFAI.integrator.azimuthal import AzimuthalIntegrator
 
 
-import Inputs
-# import ConverterXRFtoMCA  # currently unused
-
-# @asset
-def azimuthally_integrate_files(
-    input_directory: str,
+def run_integration(
+    image_path: str,
     poni_file: str,
-    azimuth_range=(30, 40),
-    npt_rad: int = 100,
-    npt_azim: int = 100,
-    #Should be dynamic eventually
-    y_limits=(0, 1.8),
-    x_limits=(39.75, 41.25),
-) -> None:
+    output_dir: Optional[str] = None,
+    npt: int = 10000,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+) -> Tuple[str, str]:
     """
-    Perform azimuthal integration on all TIFF images in a directory tree.
+    Perform 1D azimuthal integration for a single image.
 
-    This function walks through `input_directory`, identifies `.tif` and `.tiff`
-    files, performs 2D azimuthal integration using a single pyFAI `.poni`
-    calibration file, and saves both numerical results and diagnostic plots.
-
-    Parameters
-    ----------
-    input_directory : str
-        Root directory containing TIFF images to be processed.
-    poni_file : str
-        Path to the pyFAI calibration (.poni) file.
-    azimuth_range : tuple of float, optional
-        Azimuthal angle range (degrees) used for integration.
-    npt_rad : int, optional
-        Number of radial bins for integration.
-    npt_azim : int, optional
-        Number of azimuthal bins for integration.
-    y_limits : tuple of float, optional
-        Y-axis limits for output plots.
-    x_limits : tuple of float, optional
-        X-axis limits for output plots.
-
-    Returns
-    -------
-    Array as asset
-        Results are written to disk as `.dat` and `.png` files.
+    Returns paths to the generated .dat and .png files.
     """
+    image_path = str(image_path)
+    output_root = Path(output_dir) if output_dir else Path(image_path).parent
+    output_root.mkdir(parents=True, exist_ok=True)
 
-    # Initialize azimuthal integrator once
+    base_name = Path(image_path).stem
+    output_dat = output_root / f"{base_name}.dat"
+    output_png = output_root / f"{base_name}.png"
+
     ai = AzimuthalIntegrator()
     ai.load(poni_file)
-    results = {}
 
-    for dirpath, _, filenames in os.walk(input_directory):
-        for filename in filenames:
-            base_name, ext = os.path.splitext(filename)
-            ext = ext.lower()
+    image = fabio.open(image_path).data
+    two_theta, intensity = ai.integrate1d(image, npt=npt)
 
-            if ext not in (".tif", ".tiff"):
-                continue
+    np.savetxt(
+        output_dat,
+        np.column_stack((two_theta, intensity)),
+        header="2theta Intensity",
+        comments="",
+    )
 
-            input_path = os.path.join(dirpath, filename)
-            output_dat = os.path.join(dirpath, f"{base_name}.dat")
-            output_png = os.path.join(dirpath, f"{base_name}.png")
+    plt.figure(figsize=(8, 5))
+    plt.plot(two_theta, intensity, lw=2)
+    plt.xlabel("2theta (deg)")
+    plt.ylabel("Intensity")
 
-            try:
-                image = fabio.open(input_path).data
+    if x_limits:
+        plt.xlim(*x_limits)
+    if y_limits:
+        plt.ylim(*y_limits)
 
-                # pyFAI integrate2d returns:
-                # I (2D), radial axis, azimuthal axis
-                two_theta, intensity = ai.integrate1d(image, npt = 10000)
-                # intensity, radial, azimuth = ai.integrate2d(
-                #    image,
-                #    azimuth_range=azimuth_range,
-                #    npt_rad=npt_rad,
-                #    npt_azim=npt_azim,
-                #)
+    plt.tight_layout()
+    plt.savefig(output_png, dpi=150)
+    plt.close()
 
-                # Save numerical output
-                np.savetxt(
-                    output_dat,
-                    np.column_stack((two_theta, intensity)),
-                    header="2theta Intensity",
-                    comments="",
-                )
+    return str(output_dat), str(output_png)
 
-                # Work in progress: some leftover issues from trying to form integrator2d
 
-                # Plot azimuthal dependence (example slice)
-                plt.figure(figsize=(8, 5))
-                plt.plot(azimuth, intensity.mean(axis=0), lw=2)
-                plt.xlabel(r"$Q$ (nm$^{-1}$)", fontsize=15)
-                plt.ylabel("Intensity", fontsize=15)
+def integrate_directory(
+    input_directory: str,
+    poni_file: str,
+    output_directory: Optional[str] = None,
+    extensions: Iterable[str] = (".tif", ".tiff"),
+    npt: int = 10000,
+    x_limits: Optional[Tuple[float, float]] = None,
+    y_limits: Optional[Tuple[float, float]] = None,
+) -> Dict[str, Dict[str, str]]:
+    """
+    Perform 1D azimuthal integration on all TIFF images in a directory tree.
 
-                plt.xlim(*x_limits)
-                plt.ylim(*y_limits)
+    Returns a mapping of image stems to their output paths.
+    """
+    results: Dict[str, Dict[str, str]] = {}
+    for path in Path(input_directory).rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in extensions:
+            continue
 
-                plt.tick_params(axis="both", which="major", labelsize=15)
-                plt.tight_layout()
-                plt.savefig(output_png, dpi=150)
-                plt.close()
+        dat_path, png_path = run_integration(
+            image_path=str(path),
+            poni_file=poni_file,
+            output_dir=output_directory,
+            npt=npt,
+            x_limits=x_limits,
+            y_limits=y_limits,
+        )
+        results[path.stem] = {"dat": dat_path, "png": png_path}
 
-                print(f"Saved: {output_dat}, {output_png}")
-                
-                results[base_name] = {
-                    "Q": azimuth,
-                    "intensity": intensity.mean(axis=0),
-                }
-            except Exception as exc:
-                print(f"Failed to process {input_path}: {exc}")
-        
-if __name__ == "__main__":
-    azimuthally_integrate_files(
-        input_directory=Inputs.root_dir,
-        poni_file=Inputs.poni_file,
-              )
+    return results
+
+
+__all__ = [
+    "run_integration",
+    "integrate_directory",
+]

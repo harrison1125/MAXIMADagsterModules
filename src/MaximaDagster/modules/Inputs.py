@@ -1,17 +1,39 @@
 """
-Input paths for XRD and XRF analysis workflows
-
-This module centralizes the filepaths used in automated XRD analysis workflows for further use. This discretizes input values from further analysis scripts, which increases cleanliness down the line as we separate manual vs automated workflows (manual workflows use this input folder, automated workflows naturally stream new results without requiring explicitly defining filepaths). 
-
-Attributes
-----------
-root_dir : str
-    Path to directory containing all files to analyze.
-poni_file : str
-    Path to calibration file for XRD. Generated through PyFAI.
-config_path : str
-    Path to configuration file for XRF. Generated through PYMCA.
+Simple configuration helpers for XRD/XRF workflows.
 """
-root_dir = 'path/to/folder'
-poni_file = 'path/to/folder'
-config_path = 'path/to/folder'
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+
+
+@dataclass(frozen=True)
+class InputsConfig:
+    root_dir: str
+    poni_file: str
+    config_path: str
+
+
+def load_inputs_from_env(
+    root_env: str = "MAXIMA_ROOT_DIR",
+    poni_env: str = "MAXIMA_PONI_FILE",
+    config_env: str = "MAXIMA_PYMCA_CONFIG",
+) -> InputsConfig:
+    """
+    Load InputsConfig from environment variables.
+    """
+    root_dir = os.environ.get(root_env, "")
+    poni_file = os.environ.get(poni_env, "")
+    config_path = os.environ.get(config_env, "")
+
+    if not root_dir or not poni_file or not config_path:
+        raise ValueError("Missing required environment variables for InputsConfig")
+
+    return InputsConfig(root_dir=root_dir, poni_file=poni_file, config_path=config_path)
+
+
+__all__ = [
+    "InputsConfig",
+    "load_inputs_from_env",
+]
