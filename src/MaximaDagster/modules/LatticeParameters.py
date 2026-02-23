@@ -5,7 +5,7 @@ Lattice parameter extraction from XRD/XRF scan data.
 import os
 import glob
 import re
-from typing import List, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,9 @@ DEFAULT_HKL_RANGES: List[Tuple[int, int, int]] = [
     (2, 0, 0),
     (2, 2, 0),
 ]
+
+Q_COLUMN = "q_nm^-1"
+INTENSITY_COLUMN = "intensity"
 
 def extract_scan_number(file_path: str) -> int:
     """
@@ -76,6 +79,115 @@ def find_peak_q(
     return q[mask][idx]
 
 
+def _validate_ranges(
+    q_ranges: List[Tuple[float, float]],
+    hkl_ranges: List[Tuple[int, int, int]],
+) -> None:
+    if len(q_ranges) != len(hkl_ranges):
+        raise ValueError("q_ranges and hkl_ranges must be the same length")
+
+
+def process_scan_dataframe(
+    scan_df: pd.DataFrame,
+    q_ranges: Optional[List[Tuple[float, float]]] = None,
+    hkl_ranges: Optional[List[Tuple[int, int, int]]] = None,
+    scan_id: Optional[object] = None,
+) -> pd.DataFrame:
+    """
+    Compute lattice parameters for a single integrated scan in memory.
+
+    Parameters
+    ----------
+    scan_df : pd.DataFrame
+        Integrated scan with Q and intensity columns.
+    q_ranges : list[tuple[float, float]], optional
+        Q ranges for peak picking.
+    hkl_ranges : list[tuple[int, int, int]], optional
+        HKL assignments corresponding to `q_ranges`.
+    scan_id : object, optional
+        Scan identifier to include in output.
+
+    Returns
+    -------
+    pd.DataFrame
+        Single-row DataFrame containing peak positions, d-spacings,
+        and fitted lattice parameter.
+    """
+    q_ranges = q_ranges or DEFAULT_Q_RANGES
+    hkl_ranges = hkl_ranges or DEFAULT_HKL_RANGES
+    _validate_ranges(q_ranges, hkl_ranges)
+
+    if scan_df.empty:
+        raise ValueError("scan_df is empty")
+
+    if Q_COLUMN not in scan_df.columns:
+        raise ValueError(f"Required column '{Q_COLUMN}' not found in scan_df")
+    if INTENSITY_COLUMN not in scan_df.columns:
+        raise ValueError(f"Required column '{INTENSITY_COLUMN}' not found in scan_df")
+
+    q_vals = pd.to_numeric(scan_df[Q_COLUMN], errors="coerce").to_numpy(dtype=float)
+    intensity_vals = pd.to_numeric(scan_df[INTENSITY_COLUMN], errors="coerce").to_numpy(dtype=float)
+
+    record = {"scan_point": scan_id}
+    inv_sqrt_hkl: List[float] = []
+    d_columns: List[str] = []
+
+    for (q_min, q_max), (h, k, l) in zip(q_ranges, hkl_ranges):
+        qmax_col = f"Qmax_{q_min:.1f}_{q_max:.1f}"
+        d_col = f"d_nm_{q_min:.1f}_{q_max:.1f}"
+        q_peak = find_peak_q(q_vals, intensity_vals, q_min, q_max)
+        record[qmax_col] = q_peak
+        record[d_col] = 2.0 * np.pi / q_peak if pd.notna(q_peak) and q_peak != 0 else np.nan
+
+        d_columns.append(d_col)
+        inv_sqrt_hkl.append(1.0 / np.sqrt(h**2 + k**2 + l**2))
+
+    d_vals = np.asarray([record[col] for col in d_columns], dtype=float)
+    valid = ~np.isnan(d_vals)
+
+    if np.sum(valid) >= 2:
+        X = np.asarray(inv_sqrt_hkl, dtype=float)[valid].reshape(-1, 1)
+        y = d_vals[valid]
+        model = LinearRegression(fit_intercept=False)
+        model.fit(X, y)
+        a_nm = float(model.coef_[0])
+    else:
+        a_nm = np.nan
+
+    record["a_nm_avg"] = a_nm
+    record["a_A_avg"] = a_nm * 10.0 if pd.notna(a_nm) else np.nan
+    return pd.DataFrame([record])
+
+
+def process_integrated_dict(
+    integrated_scans: Mapping[int, pd.DataFrame],
+    q_ranges: Optional[List[Tuple[float, float]]] = None,
+    hkl_ranges: Optional[List[Tuple[int, int, int]]] = None,
+) -> Dict[int, pd.DataFrame]:
+    """
+    Process a mapping of integrated scans and return one result frame per scan.
+
+    Parameters
+    ----------
+    integrated_scans : Mapping[int, pd.DataFrame]
+        Mapping of scan ID to integrated intensity profile.
+
+    Returns
+    -------
+    Dict[int, pd.DataFrame]
+        Mapping of scan ID to one-row DataFrame containing lattice parameters.
+    """
+    outputs: Dict[int, pd.DataFrame] = {}
+    for scan_id, scan_df in integrated_scans.items():
+        outputs[int(scan_id)] = process_scan_dataframe(
+            scan_df=scan_df,
+            q_ranges=q_ranges,
+            hkl_ranges=hkl_ranges,
+            scan_id=scan_id,
+        )
+    return outputs
+
+
 # =============================================================================
 # CORE PROCESSING
 # =============================================================================
@@ -105,9 +217,7 @@ def process_folder(
     """
     q_ranges = q_ranges or DEFAULT_Q_RANGES
     hkl_ranges = hkl_ranges or DEFAULT_HKL_RANGES
-
-    if len(q_ranges) != len(hkl_ranges):
-        raise ValueError("q_ranges and hkl_ranges must be the same length")
+    _validate_ranges(q_ranges, hkl_ranges)
 
     file_pattern = os.path.join(folder_path, "scan_point_*.dat")
     files = sorted(glob.glob(file_pattern), key=extract_scan_number)
@@ -119,62 +229,21 @@ def process_folder(
     records = []
 
     # -------------------------------------------------------------------------
-    # Peak extraction
+    # In-memory peak extraction + lattice fit per scan
     # -------------------------------------------------------------------------
     for file_path in files:
         data = np.loadtxt(file_path, skiprows=1)
-        q_vals = data[:, 0]
-        intensity = data[:, 1]
-
-        record = {"scan_point": os.path.basename(file_path)}
-
-        for (q_min, q_max), (h, k, l) in zip(q_ranges, hkl_ranges):
-            col_name = f"Qmax_{q_min:.1f}_{q_max:.1f}"
-            record[col_name] = find_peak_q(
-                q_vals, intensity, q_min, q_max
-            )
-
-        records.append(record)
+        integrated_df = pd.DataFrame({"q_nm^-1": data[:, 0], "intensity": data[:, 1]})
+        scan_name = os.path.basename(file_path)
+        row_df = process_scan_dataframe(
+            scan_df=integrated_df,
+            q_ranges=q_ranges,
+            hkl_ranges=hkl_ranges,
+            scan_id=scan_name,
+        )
+        records.append(row_df.iloc[0].to_dict())
 
     df = pd.DataFrame(records)
-
-    # -------------------------------------------------------------------------
-    # d-spacing calculation
-    # -------------------------------------------------------------------------
-    inv_sqrt_hkl = []
-    d_columns = []
-
-    for (q_min, q_max), (h, k, l) in zip(q_ranges, hkl_ranges):
-        q_col = f"Qmax_{q_min:.1f}_{q_max:.1f}"
-        d_col = f"d_nm_{q_min:.1f}_{q_max:.1f}"
-
-        df[d_col] = 2.0 * np.pi / df[q_col]
-        d_columns.append(d_col)
-        inv_sqrt_hkl.append(1.0 / np.sqrt(h**2 + k**2 + l**2))
-
-    # -------------------------------------------------------------------------
-    # Lattice parameter regression
-    # -------------------------------------------------------------------------
-    a_nm = []
-
-    for _, row in df.iterrows():
-        d_vals = pd.to_numeric(row[d_columns], errors="coerce").values
-        valid = ~np.isnan(d_vals)
-
-        if np.sum(valid) < 2:
-            a_nm.append(np.nan)
-            continue
-
-        X = np.array(inv_sqrt_hkl)[valid].reshape(-1, 1)
-        y = d_vals[valid]
-
-        model = LinearRegression(fit_intercept=False)
-        model.fit(X, y)
-
-        a_nm.append(model.coef_[0])
-
-    df["a_nm_avg"] = a_nm
-    df["a_A_avg"] = df["a_nm_avg"] * 10.0  # nm → Å
 
     # -------------------------------------------------------------------------
     # Output
@@ -234,6 +303,8 @@ def process_folders(
 __all__ = [
     "DEFAULT_Q_RANGES",
     "DEFAULT_HKL_RANGES",
+    "process_scan_dataframe",
+    "process_integrated_dict",
     "extract_scan_number",
     "find_peak_q",
     "process_folder",

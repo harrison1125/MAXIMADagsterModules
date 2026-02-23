@@ -206,3 +206,7 @@ __marimo__/
 # Dagster
 .dg/
 .*dagster*
+
+# Private
+TODO.md
+data/

@@ -133,6 +133,20 @@ class PeakOptimizer:
         _ = minimize(self._objective, x0=initial_guess, method='Nelder-Mead', tol=1e-4, options={'maxiter': 50})
         return self.best_geometry
 
+HC_KEV_M = 1.2398419843320026e-9
+DEFAULT_WAVELENGTH_M = 0.5121261413149675e-10
+
+def resolve_wavelength(*, energy: float | None, wavelength: float | None) -> float:
+    if wavelength is not None and energy is not None:
+        raise ValueError("Provide either `energy` or `wavelength`, not both.")
+    if wavelength is not None:
+        return wavelength
+    if energy is not None:
+        if energy <= 0.0:
+            raise ValueError("`energy` must be > 0.")
+        return HC_KEV_M / energy
+    return DEFAULT_WAVELENGTH_M
+
 class MaximaCalibrator:
     """
     Calibrator class using MaxSWIN model and pyFAI for diffraction geometry calibration.
@@ -141,7 +155,8 @@ class MaximaCalibrator:
         model_path (str): Path to the trained model checkpoint (.pth).
         calibrant (str, optional): Alias of the calibrant. Defaults to 'alpha_Al2O3'.
         detector (str, optional): Alias of the detector. Defaults to 'Eiger2Cdte_1M'.
-        wavelength (float, optional): X-ray wavelength in meters. Defaults to 0.512A.
+        energy (float, optional): X-ray energy in keV. Defaults to None.
+        wavelength (float, optional): X-ray wavelength in meters. Defaults to None.
         image_size (int, optional): Input image size for the model. Defaults to 1056.
         backbone (str, optional): Pretrained Swin model name. Defaults to Swin Base Patch 4.
         hidden_dim (int, optional): Hidden dimension size for the regression head. Defaults to 1024.
@@ -151,7 +166,8 @@ class MaximaCalibrator:
                  model_path: str, 
                  calibrant: str = 'alpha_Al2O3', 
                  detector: str = 'Eiger2Cdte_1M', 
-                 wavelength: float = 0.5121261413149675e-10,
+                 energy: float = None,
+                 wavelength: float = None,
                  image_size: int = 1056,
                  backbone: str = 'microsoft/swin-base-patch4-window12-384-in22k',
                  hidden_dim: int = 1024,
@@ -160,7 +176,7 @@ class MaximaCalibrator:
         self.model_path = model_path
         self.calibrant_alias = calibrant
         self.detector_alias = detector
-        self.wavelength = wavelength
+        self.wavelength = resolve_wavelength(energy=energy, wavelength=wavelength)
         self.image_size = image_size
         self.backbone = backbone
         self.hidden_dim = hidden_dim
@@ -227,19 +243,20 @@ class MaximaCalibrator:
         ])
         return transform(tensor).unsqueeze(0)
 
-    def calibrate(self, image_path: str, output_path: str = None) -> Geometry:
+    def calibrate(self, image: np.uint32, output_path: str = None) -> Geometry:
         """
         Runs the full calibration pipeline.
 
         Args:
-            image_path (str): Path to the input diffraction image (e.g., .tif, .cbf).
+            image (np.ndarray): Input diffraction image (e.g., .tif, .cbf).
+
             output_path (str, optional): Path to save the final geometry as a .poni file.
 
         Returns:
             Geometry: The final refined pyFAI Geometry object.
         """
         # run inference
-        image = fabio.open(image_path).data.astype(np.float32)
+        image = image.astype(np.float32)
         tensor = self._image_to_tensor(image).to(self.device)
         with torch.no_grad():
             pred = self.model(tensor).cpu().numpy().flatten()
@@ -260,14 +277,14 @@ class MaximaCalibrator:
             
         return final_geometry
 
-
 def calibrate_image(
     image_path: str,
     model_path: str,
     output_path: str = None,
     calibrant: str = "alpha_Al2O3",
     detector: str = "Eiger2Cdte_1M",
-    wavelength: float = 0.5121261413149675e-10,
+    energy: float = None,  
+    wavelength: float = None,
     image_size: int = 1056,
     backbone: str = "microsoft/swin-base-patch4-window12-384-in22k",
     hidden_dim: int = 1024,
@@ -276,6 +293,8 @@ def calibrate_image(
     """
     Convenience wrapper for asset usage.
     """
+    wavelength = resolve_wavelength(energy=energy, wavelength=wavelength)
+
     calibrator = MaximaCalibrator(
         model_path=model_path,
         calibrant=calibrant,

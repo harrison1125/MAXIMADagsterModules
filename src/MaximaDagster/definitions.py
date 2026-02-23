@@ -1,16 +1,17 @@
-from dagster import Definitions, load_assets_from_modules
-
-from .defs import assets
+from dagster import Definitions, define_asset_job, fs_io_manager
 from .resources import GirderClient
+from .assets import *
 
-all_assets = load_assets_from_modules([assets])
+xrd_test_job = define_asset_job(
+    name="xrd_test_job",
+    selection=["xrdxrf_scans", "calibration_model", "poni", "azimuthal_integration", "lattice_parameters"],
+)
 
 defs = Definitions(
-    assets=all_assets,
+    assets=[xrdxrf_scans, calibration_model, pymca_config, poni, azimuthal_integration, lattice_parameters, mca, xrf_fit, concentrations],
+    jobs=[xrd_test_job],
     resources={
-        "girder": GirderClient(
-            api_url="https://your-girder-instance.com/api/v1",
-            api_key="your-api-key-here"
-        )
-    }
+        "GirderClient": GirderClient,
+        "io_manager": fs_io_manager,
+    },
 )

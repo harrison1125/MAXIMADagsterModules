@@ -10,7 +10,7 @@ __all__: List[str] = [
 	"calibrate",
 	"concentrations",
 	"ConverterXRFtoMCA",
-	"DAG_Lattice_Parameter_Node",
+	"LatticeParameters",
 	"Inputs",
 	"MCAtoFit",
 ]
