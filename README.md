@@ -1,8 +1,5 @@
 # Dagster for AIMD-L MAXIMA
 
-
-![alt text](dag-draft.png)
-
 ## XRDXRF Dagster Workflow
 
 The Dagster deployment now supports a sensor-driven experiment pipeline for XRD assets. XRF still WIP. 
