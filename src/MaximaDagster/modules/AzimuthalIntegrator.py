@@ -200,6 +200,9 @@ def integrate_directory(
 
     Returns a mapping of image stems to their output paths.
     """
+    if output_directory:
+        Path(output_directory).mkdir(parents=True, exist_ok=True)
+
     results: Dict[str, Dict[str, str]] = {}
     for path in Path(input_directory).rglob("*"):
         if not path.is_file():

@@ -256,6 +256,7 @@ class MaximaCalibrator:
             Geometry: The final refined pyFAI Geometry object.
         """
         # run inference
+        # image = image[0]
         image = image.astype(np.float32)
         tensor = self._image_to_tensor(image).to(self.device)
         with torch.no_grad():

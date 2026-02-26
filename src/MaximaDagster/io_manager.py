@@ -1,169 +1,165 @@
+import io
 import os
-import json
-import tempfile
-from typing import Any
-from dagster import IOManager, InputContext, OutputContext, io_manager, StringSource
-from girder_client import GirderClient as GC
+from urllib.parse import urlparse
+
+from dagster import (
+    ConfigurableIOManagerFactory,
+    InputContext,
+    IOManager,
+    OutputContext,
+)
+from girder_client import GirderClient
+
 
 class GirderIOManager(IOManager):
     """
-    Uploads asset outputs to Girder.
-    Serializes dicts to temp files, uploads, then cleans up.
+    IO Manager for reading/writing to Girder with separate source/target folders.
+    - load_input(): Download from source_folder_id
+    - handle_output(): Upload to target_folder_id
+    Enables asset chaining and data persistence.
     """
 
-    def __init__(self, girder_client: GC, folder_id: str):
-        self.gc = girder_client
-        self.folder_id = folder_id
+    def __init__(
+        self,
+        api_url: str,
+        api_key: str,
+        source_folder_id: str,
+        target_folder_id: str,
+    ):
+        """Initialize manager with Girder credentials and folder IDs."""
+        self._cli = GirderClient(apiUrl=api_url)
+        self._cli.authenticate(apiKey=api_key)
+        self.source_folder_id = source_folder_id
+        self.target_folder_id = target_folder_id
 
-    def handle_output(self, context: OutputContext, obj: Any) -> None:
-        """Serialize and upload output to Girder folder."""
-        asset_name = context.asset_key.path[-1]
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-        # these are temporary placeholders for actual data formats
-            if asset_name == "azimuthal_integration":
-                # dict[scan_num] -> .dat files
-                for scan_num, data in obj.items():
-                    filename = f"scan_{scan_num}_azimuthal.dat"
-                    filepath = os.path.join(tmpdir, filename)
-                    self._write_dat(filepath, data)
-                    self._upload_to_girder(filepath, filename)
-                    
-            elif asset_name == "lattice_parameters":
-                # dict[scan_num] -> .xlsx files
-                for scan_num, data in obj.items():
-                    filename = f"scan_{scan_num}_lattice.xlsx"
-                    filepath = os.path.join(tmpdir, filename)
-                    self._write_xlsx(filepath, data)
-                    self._upload_to_girder(filepath, filename)
-                    
-            elif asset_name == "xrf_fit":
-                # dict[scan_num] -> .txt or .json files
-                for scan_num, data in obj.items():
-                    filename = f"scan_{scan_num}_xrf_fit.json"
-                    filepath = os.path.join(tmpdir, filename)
-                    self._write_json(filepath, data)
-                    self._upload_to_girder(filepath, filename)
-                    
-            elif asset_name == "concentrations":
-                # dict[scan_num] -> .xlsx files
-                for scan_num, data in obj.items():
-                    filename = f"scan_{scan_num}_concentrations.xlsx"
-                    filepath = os.path.join(tmpdir, filename)
-                    self._write_xlsx(filepath, data)
-                    self._upload_to_girder(filepath, filename)
-                    
-            elif asset_name == "poni":
-                # .poni file
-                filename = "calibration.poni"
-                filepath = os.path.join(tmpdir, filename)
-                self._write_poni(filepath, obj)
-                self._upload_to_girder(filepath, filename)
-                
-            elif asset_name == "mca":
-                # dict[scan_num] -> .mca files
-                for scan_num, data in obj.items():
-                    filename = f"scan_{scan_num}.mca"
-                    filepath = os.path.join(tmpdir, filename)
-                    self._write_mca(filepath, data)
-                    self._upload_to_girder(filepath, filename)
+    def _get_path(self, context: InputContext | OutputContext) -> str:
+        """Build logical path from asset key and partition if present."""
+        if context.has_partition_key:
+            return f"{'/'.join(context.asset_key.path)}/{context.partition_key}"
+        return "/".join(context.asset_key.path)
 
-        context.log.info(f"Uploaded {asset_name} outputs to Girder folder {self.folder_id}")
+    def load_input(self, context: InputContext) -> io.BytesIO:
+        """
+        Download input from source folder.
+        Enables passing data between assets without temp files.
+        """
+        path = self._get_path(context)
+        item_name = os.path.basename(path)
 
-    def _upload_to_girder(self, local_path: str, remote_name: str) -> None:
-        """Upload a file to the Girder folder."""
-        self.gc.uploadFileToFolder(self.folder_id, local_path, remote_name)
+        items = list(self._cli.listItem(self.source_folder_id))
+        matching_item = next(
+            (item for item in items if item["name"] == item_name),
+            None,
+        )
 
-    def _write_dat(self, filepath: str, data: dict) -> None:
-        """Serialize azimuthal integration data to .dat file."""
-        # Placeholder: adjust based on your data structure
-        with open(filepath, "w") as f:
-            json.dump(data, f)
+        if not matching_item:
+            raise FileNotFoundError(
+                f"No input '{item_name}' found in source folder {self.source_folder_id}"
+            )
 
-    def _write_xlsx(self, filepath: str, data: dict) -> None:
-        """Serialize to .xlsx file (requires openpyxl or pandas)."""
-        import pandas as pd
-        df = pd.DataFrame([data])
-        df.to_excel(filepath)
+        files = self._cli.get(f"item/{matching_item['_id']}/files")
+        if not files:
+            raise FileNotFoundError(f"No files in item '{item_name}'")
 
-    def _write_json(self, filepath: str, data: dict) -> None:
-        """Serialize to .json file."""
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2)
+        fp = io.BytesIO()
+        self._cli.downloadFile(files[0]["_id"], fp)
+        fp.seek(0)
 
-    def _write_poni(self, filepath: str, data: dict) -> None:
-        """Write PyFAI PONI format file."""
-        # Placeholder: adjust based on your poni dict structure
-        with open(filepath, "w") as f:
-            for key, value in data.items():
-                f.write(f"{key} = {value}\n")
+        context.log.info(f"Downloaded '{item_name}' from Girder")
+        return fp
 
-    def _write_mca(self, filepath: str, data: dict) -> None:
-        """Write PyMCA .mca format file."""
-        # Placeholder: adjust based on your mca dict structure
-        with open(filepath, "w") as f:
-            json.dump(data, f)
+    def handle_output(self, context: OutputContext, obj: io.BytesIO) -> None:
+        """
+        Upload output to target folder.
+        Handles both new uploads and updates to existing items.
+        """
+        if not obj:
+            context.log.warning("Empty output, skipping upload")
+            return
 
-# Example from Dagster docs for a custom IOManager that uploads to a database API
-# class DatabaseAPIIOManager(dg.ConfigurableIOManager):
-#     api_token: str
-#     database_url: str
+        path = self._get_path(context)
+        item_name = os.path.basename(path)
+
+        try:
+            existing_item = next(
+                (item for item in self._cli.listItem(self.target_folder_id)
+                 if item["name"] == item_name),
+                None,
+            )
+
+            if existing_item:
+                item = existing_item
+                context.log.info(f"Updating existing item '{item_name}'")
+            else:
+                item = self._cli.loadOrCreateItem(item_name, self.target_folder_id)
+                context.log.info(f"Created new item '{item_name}'")
+
+            size = obj.seek(0, os.SEEK_END)
+            obj.seek(0)
+
+            files = self._cli.get(f"item/{item['_id']}/files", parameters={"limit": 1})
+
+            if files:
+                fobj = self._cli.uploadFileContents(files[0]["_id"], obj, size)
+            else:
+                file_meta = self._cli.post(
+                    "file",
+                    parameters={
+                        "parentType": "item",
+                        "parentId": item["_id"],
+                        "name": item_name,
+                        "size": size,
+                        "mimeType": "application/octet-stream",
+                    },
+                )
+                fobj = self._cli._uploadContents(file_meta, obj, size)
+
+            import datetime
+            girder_metadata = {
+                "run_id": str(context.run_id),
+                "code_version": str(context.version),
+                "asset_key": "/".join(context.asset_key.path),
+                "timestamp": datetime.datetime.now().isoformat(),
+            }
+            self._cli.addMetadataToItem(item["_id"], girder_metadata)
+
+            girder_url = urlparse(self._cli.urlBase)
+            context.add_output_metadata({
+                "girder_item_url": f"{girder_url.scheme}://{girder_url.netloc}/#item/{item['_id']}",
+                "file_size_bytes": fobj["size"],
+                "girder_file_id": fobj["_id"],
+            })
+
+            context.log.info(f"Uploaded '{item_name}' to Girder")
+
+        except Exception as e:
+            context.log.error(f"Failed to upload '{item_name}': {str(e)}")
+            raise
+
+
+class ConfigurableGirderIOManager(ConfigurableIOManagerFactory):
+    """
+    Factory for creating GirderIOManager with environment variable configuration.
     
-#     def __init__(self, api_token: str, database_url: str):
-#         self.api_token = api_token
-#         self.database_url = database_url
-#         # Initialize in-memory cache for passing data between assets
-#         self._memory_cache = {}
-    
-#     def handle_output(self, context: dg.OutputContext, obj):
-#         # Store in memory for intermediate assets
-#         self._memory_cache[context.asset_key] = obj
-        
-#         # Only write to database for final assets (you can customize this logic)
-#         if context.has_tag("final_asset"):
-#             # Write to database
-#             self._write_to_database(context.asset_key, obj)
-    
-#     def load_input(self, context: dg.InputContext):
-#         # First check if data is in memory cache
-#         if context.asset_key in self._memory_cache:
-#             return self._memory_cache[context.asset_key]
-        
-#         # If not in cache, download from database API
-#         return self._download_from_database(context.asset_key)
-    
-#     def _download_from_database(self, asset_key: dg.AssetKey):
-#         # Implement your database API download logic here
-#         # This is where you'd make API calls using self.api_token
-#         pass
-    
-#     def _write_to_database(self, asset_key: dg.AssetKey, data):
-#         # Implement your database write logic here
-#         pass
+    Usage in definitions.py:
+        "girder_io_manager": ConfigurableGirderIOManager(
+            api_url=EnvVar("GIRDER_API_URL"),
+            api_key=EnvVar("GIRDER_API_KEY"),
+            source_folder_id=EnvVar("GIRDER_SOURCE_FOLDER_ID"),
+            target_folder_id=EnvVar("GIRDER_TARGET_FOLDER_ID"),
+        )
+    """
 
-# USAGE EXAMPLE
+    api_url: str
+    api_key: str
+    source_folder_id: str
+    target_folder_id: str
 
-# @dg.asset
-# def upstream_asset_1(context: dg.AssetExecutionContext):
-#     # This asset's data will be downloaded from the database API
-#     # when needed by downstream assets
-#     return transform_data()
-
-# @dg.asset(tags={"final_asset": "true"})
-# def final_asset(intermediate_asset):
-#     # This asset will be written to the database
-#     # due to the "final_asset" tag
-#     result = final_transformation(intermediate_asset)
-#     return result
-
-# @dg.Definitions
-# def defs():
-#     return dg.Definitions(
-#         assets=[upstream_asset_1, upstream_asset_2, intermediate_asset, final_asset],
-#         resources={
-#             "io_manager": DatabaseAPIIOManager(
-#                 api_token="your_api_token",
-#                 database_url="your_database_url"
-#             )
-#         }
-#     )
+    def create_io_manager(self, context) -> GirderIOManager:
+        """Create IO manager instance."""
+        return GirderIOManager(
+            api_url=self.api_url,
+            api_key=self.api_key,
+            source_folder_id=self.source_folder_id,
+            target_folder_id=self.target_folder_id,
+        )
