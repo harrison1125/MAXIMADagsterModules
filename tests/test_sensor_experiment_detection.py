@@ -45,3 +45,32 @@ def test_raw_folder_has_scan_files_false():
     )
 
     assert sensors._raw_folder_has_scan_files(gc, "raw") is False
+
+
+def test_calibrant_cursor_roundtrip():
+    cursor = sensors._serialize_last_calibrant_file_id("cal_file_42")
+    parsed = sensors._parse_last_calibrant_file_id(cursor)
+    assert parsed == "cal_file_42"
+
+
+class _FakeCalibrantGirderClient:
+    def listItem(self, _folder_id):
+        return [
+            {"_id": "item_old", "updated": "2026-03-12T09:00:00.000+00:00"},
+            {"_id": "item_new", "updated": "2026-03-12T10:00:00.000+00:00"},
+        ]
+
+    def listFile(self, item_id):
+        if item_id == "item_old":
+            return [{"_id": "cal_1", "name": "xrd_calibrant_data_000001.h5", "updated": "2026-03-12T09:00:00.000+00:00"}]
+        if item_id == "item_new":
+            return [
+                {"_id": "note_1", "name": "notes.txt", "updated": "2026-03-12T10:00:00.000+00:00"},
+                {"_id": "cal_2", "name": "xrd_calibrant_data_000002.h5", "updated": "2026-03-12T10:00:00.000+00:00"},
+            ]
+        return []
+
+
+def test_latest_calibrant_scan_file_id_picks_newest_scan():
+    gc = _FakeCalibrantGirderClient()
+    assert sensors._latest_calibrant_scan_file_id(gc, "calibrants_folder") == "cal_2"

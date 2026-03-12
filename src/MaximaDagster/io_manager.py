@@ -116,7 +116,7 @@ class GirderIOManager(IOManager):
 
             import datetime
             girder_metadata = {
-                "run_id": str(context.run_id),
+                "run_id": str(context.run.run_id),
                 "code_version": str(context.version),
                 "asset_key": "/".join(context.asset_key.path),
                 "timestamp": datetime.datetime.now().isoformat(),
