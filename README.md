@@ -93,6 +93,8 @@ dagster dev -w workspace.yaml
 
 Open the UI at `http://localhost:3000`.
 
+Enable the sensors in the "Automation" tab to start monitoring for new experiments and calibrant updates.
+
 ## Docker Quickstart
 
 1. Create and edit `.env`:
