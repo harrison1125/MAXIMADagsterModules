@@ -1,6 +1,5 @@
-from dagster import Definitions, define_asset_job, fs_io_manager, EnvVar
+from dagster import Definitions, define_asset_job, fs_io_manager
 from .resources import GirderClient
-from .io_manager import ConfigurableGirderIOManager
 from .assets import *
 from .sensors import calibration_scan_sensor, experiment_folder_sensor, experiment_partitions
 
@@ -26,11 +25,5 @@ defs = Definitions(
             }
         ),
         "io_manager": fs_io_manager,
-        "girder_io_manager": ConfigurableGirderIOManager(
-            api_url=EnvVar("GIRDER_API_URL"),
-            api_key=EnvVar("GIRDER_API_KEY"),
-            source_folder_id=EnvVar("GIRDER_SOURCE_FOLDER_ID"),
-            target_folder_id=EnvVar("GIRDER_TARGET_FOLDER_ID"),
-        ),
     },
 )

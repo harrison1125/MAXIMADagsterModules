@@ -206,7 +206,11 @@ __marimo__/
 # Dagster
 .dg/
 .*dagster*
+dagster_home/
 
 # Private
 TODO.md
 data/
+
+# Docker
+.dockerignore
