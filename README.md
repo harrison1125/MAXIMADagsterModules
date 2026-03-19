@@ -50,7 +50,7 @@ Copy `.env.example` to `.env` and provide values:
 - `GIRDER_API_KEY`: API key for an account with read/write access to relevant folders
 - `GIRDER_ROOT_FOLDER_ID`: parent folder containing experiment subfolders
 - `GIRDER_CALIBRANTS_FOLDER_ID`: folder containing calibrant `.h5` scan files
-- `GIRDER_MODEL_ITEM_OR_FILE_ID`: Girder item or file ID for the `.pth` calibration model
+- `GIRDER_MODEL_ITEM_ID`: Girder item ID for the `.pth` calibration model
 
 ## Local Development
 

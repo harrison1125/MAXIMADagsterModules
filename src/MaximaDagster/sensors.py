@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from typing import Any
 
 from dagster import (
@@ -12,31 +11,17 @@ from dagster import (
     sensor,
 )
 
+from .girder_helpers import find_child_folder_by_name, get_child_folders
+from .patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN
+
 
 experiment_partitions = DynamicPartitionsDefinition(name="experiments")
-_H5_SCAN_PATTERN = re.compile(r"^scan_point_\d+_data_\d+\.h5$", re.IGNORECASE)
-_CALIBRANT_SCAN_PATTERN = re.compile(r"^xrd_calibrant_data_(\d+)\.h5$", re.IGNORECASE)
 
-
-def _get_child_folders(gc: Any, parent_folder_id: str) -> list[dict[str, Any]]:
-    folders = gc.get(
-        "folder",
-        parameters={
-            "parentType": "folder",
-            "parentId": parent_folder_id,
-            "sort": "lowerName",
-            "sortdir": 1,
-            "limit": 0,
-        },
-    )
-    return folders or []
-
-
-def _find_child_folder_by_name(gc: Any, parent_folder_id: str, name: str) -> dict[str, Any] | None:
-    for folder in _get_child_folders(gc, parent_folder_id):
-        if folder.get("name", "").lower() == name.lower():
-            return folder
-    return None
+# Compatibility shims for internal sensor functions
+_get_child_folders = get_child_folders
+_find_child_folder_by_name = find_child_folder_by_name
+_H5_SCAN_PATTERN = H5_SCAN_PATTERN
+_CALIBRANT_SCAN_PATTERN = CALIBRANT_SCAN_PATTERN
 
 
 def _raw_folder_has_scan_files(gc: Any, raw_folder_id: str) -> bool:
@@ -106,7 +91,7 @@ def _serialize_last_calibrant_file_id(file_id: str) -> str:
 
 @sensor(
     name="calibration_scan_sensor",
-    job_name="calibration_precompute_job",
+    job_name="calibration_precompute",
     minimum_interval_seconds=30,
     required_resource_keys={"GirderClient"},
 )
@@ -130,7 +115,7 @@ def calibration_scan_sensor(context: SensorEvaluationContext, GirderClient=None)
         run_requests=[
             RunRequest(
                 run_key=f"calibrant:{latest_file_id}",
-                job_name="calibration_precompute_job",
+                job_name="calibration_precompute",
                 tags={"calibrant_scan_file_id": latest_file_id},
             )
         ],
@@ -139,7 +124,7 @@ def calibration_scan_sensor(context: SensorEvaluationContext, GirderClient=None)
 
 @sensor(
     name="experiment_folder_sensor",
-    job_name="xrd_test_job",
+    job_name="xrd",
     minimum_interval_seconds=30,
     required_resource_keys={"GirderClient"},
 )
@@ -177,7 +162,7 @@ def experiment_folder_sensor(context: SensorEvaluationContext, GirderClient=None
     run_requests = [
         RunRequest(
             run_key=f"experiment:{exp['_id']}",
-            job_name="xrd_test_job",
+            job_name="xrd",
             partition_key=str(exp["_id"]),
             tags={"experiment_folder_name": str(exp.get("name", "unknown"))},
         )

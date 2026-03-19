@@ -17,10 +17,10 @@ from dagster import (
     asset,
 )
 from dagster._core.errors import DagsterInvalidPropertyError
-from girder_client import HttpError
 from pyFAI.geometry import Geometry
-from pyFAI.integrator.azimuthal import AzimuthalIntegrator as PyFAIAzimuthalIntegrator
 
+from .config import load_girder_folder_config
+from .girder_helpers import find_child_folder_by_name, get_child_folders, get_optional_igsn
 from .modules import (
     AzimuthalIntegrator,
     ConverterXRFtoMCA,
@@ -28,39 +28,17 @@ from .modules import (
     MCAtoFit,
     concentrations as concentrations_module,
 )
+from .patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN, XRF_SCAN_PATTERN
+from .poni_manager import CalibrationCache, load_geometry_from_poni
+from .results_publisher import build_run_manifest, upload_result_batch
 from .sensors import experiment_partitions
 
-
-_H5_SCAN_PATTERN = re.compile(r"^scan_point_(\d+)_data_\d+\.h5$", re.IGNORECASE)
-_CALIBRANT_SCAN_PATTERN = re.compile(r"^xrd_calibrant_data_(\d+)\.h5$", re.IGNORECASE) # EX: xrd_calibrant_data_000001.h5
-_XRF_SCAN_PATTERN = re.compile(r"^scan_point_(\d+)\.xrf$", re.IGNORECASE)
 
 
 def _require_partition_key(context: AssetExecutionContext) -> str:
     if not context.has_partition_key:
         raise ValueError("This asset requires a partition key equal to a Girder experiment folder id.")
     return str(context.partition_key)
-
-
-def _get_child_folders(gc: Any, parent_folder_id: str) -> list[dict[str, Any]]:
-    folders = gc.get(
-        "folder",
-        parameters={
-            "parentType": "folder",
-            "parentId": parent_folder_id,
-            "sort": "lowerName",
-            "sortdir": 1,
-            "limit": 0,
-        },
-    )
-    return folders or []
-
-
-def _find_child_folder_by_name(gc: Any, parent_folder_id: str, name: str) -> dict[str, Any] | None:
-    for folder in _get_child_folders(gc, parent_folder_id):
-        if folder.get("name", "").lower() == name.lower():
-            return folder
-    return None
 
 
 def _read_xrd_h5_from_file_id(gc: Any, file_id: str) -> Any:
@@ -71,65 +49,44 @@ def _read_xrd_h5_from_file_id(gc: Any, file_id: str) -> Any:
             return h5f["entry/data/data"][:][0]
 
 
-def _get_optional_igsn(item: dict[str, Any]) -> str | None:
-    meta = item.get("meta")
-    if not isinstance(meta, dict):
-        return None
-
-    igsn = meta.get("igsn")
-    if isinstance(igsn, str) and igsn.strip():
-        return igsn.strip()
-    return None
-
-
-def _resolve_model_file(gc: Any, model_source_id: str) -> tuple[dict[str, Any], dict[str, Any], str]:
-    file_info: dict[str, Any] | None = None
-    meta: dict[str, Any] = {}
-
-    try:
-        file_info = gc.getFile(model_source_id)
-        file_name = file_info["name"]
-        meta = file_info.get("meta") or {}
-    except HttpError:
-        item_info = gc.getItem(model_source_id)
-        meta = item_info.get("meta") or {}
-        item_files = list(gc.listFile(item_info["_id"]))
-        pth_files = [f for f in item_files if str(f.get("name", "")).lower().endswith(".pth")]
-        if not pth_files:
-            raise ValueError("No .pth files found for GIRDER_MODEL_ITEM_OR_FILE_ID item.")
-        file_info = pth_files[0]
-        file_name = file_info["name"]
-
+def _resolve_model_file(gc: Any, model_item_id: str) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """
+    Retrieve the .pth calibration model file from a Girder item.
+    
+    Args:
+        gc: Girder client instance
+        model_item_id: Girder item ID containing the .pth model file
+    
+    Returns:
+        Tuple of (file_info, metadata, file_name)
+    
+    Raises:
+        ValueError: If no .pth files found or file type invalid
+    """
+    item_info = gc.getItem(model_item_id)
+    meta = item_info.get("meta") or {}
+    
+    item_files = list(gc.listFile(item_info["_id"]))
+    pth_files = [f for f in item_files if str(f.get("name", "")).lower().endswith(".pth")]
+    
+    if not pth_files:
+        raise ValueError(
+            f"No .pth files found in Girder item {model_item_id}. "
+            f"Expected .pth model file but found: {[f.get('name') for f in item_files]}"
+        )
+    
+    file_info = pth_files[0]
+    file_name = file_info["name"]
+    
     if not file_name.lower().endswith(".pth"):
         raise ValueError(f"Expected a .pth model file, got {file_name}")
-
+    
     return file_info, meta, file_name
 
 
 def _load_geometry_from_poni(poni_path: str) -> Geometry:
-    ai = PyFAIAzimuthalIntegrator()
-    ai.load(poni_path)
-    return Geometry(
-        dist=ai.dist,
-        poni1=ai.poni1,
-        poni2=ai.poni2,
-        rot1=ai.rot1,
-        rot2=ai.rot2,
-        rot3=ai.rot3,
-        detector=ai.detector,
-        wavelength=ai.wavelength,
-    )
-
-
-def _read_calibration_cache_index(index_path: Path) -> dict[str, Any]:
-    if not index_path.exists():
-        return {}
-    return json.loads(index_path.read_text(encoding="utf-8"))
-
-
-def _write_calibration_cache_index(index_path: Path, payload: dict[str, Any]) -> None:
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    """Compatibility shim for load_geometry_from_poni."""
+    return load_geometry_from_poni(poni_path)
 
 
 def _latest_calibrant_scan(gc: Any, calibrants_folder_id: str, include_xrd: bool = False) -> dict[str, Any]:
@@ -139,7 +96,7 @@ def _latest_calibrant_scan(gc: Any, calibrants_folder_id: str, include_xrd: bool
         item_updated = str(item.get("updated") or "")
         for file_obj in gc.listFile(item["_id"]):
             file_name = str(file_obj.get("name", ""))
-            if not _CALIBRANT_SCAN_PATTERN.match(file_name):
+            if not CALIBRANT_SCAN_PATTERN.match(file_name):
                 continue
             candidates.append(
                 {
@@ -192,7 +149,7 @@ def _has_inflight_calibration_precompute(
     ]
     records = context.instance.get_run_records(
         filters=RunsFilter(
-            job_name="calibration_precompute_job",
+            job_name="calibration_precompute",
             statuses=active_statuses,
             tags={"calibrant_scan_file_id": calibrant_file_id},
         ),
@@ -209,6 +166,11 @@ def _ensure_cached_poni(
     gc: Any,
     calibration_model_payload: dict[str, Any],
 ) -> dict[str, Any]:
+    """Orchestrate PONI cache lookup or calibration.
+    
+    Checks cache for existing PONI, handles inflight calibration jobs,
+    or triggers fresh calibration if needed.
+    """
     calibrants_folder_id = os.getenv("GIRDER_CALIBRANTS_FOLDER_ID")
     if not calibrants_folder_id:
         raise ValueError("GIRDER_CALIBRANTS_FOLDER_ID is not configured.")
@@ -216,53 +178,48 @@ def _ensure_cached_poni(
     latest_calibrant = _latest_calibrant_scan(gc, calibrants_folder_id)
     calibrant_file_id = latest_calibrant["file_id"]
 
-    cache_dir = Path("data") / "calibrations"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_index_path = cache_dir / "index.json"
-    cache_index = _read_calibration_cache_index(cache_index_path)
+    # Initialize cache manager
+    cache = CalibrationCache()
 
     model_metadata = calibration_model_payload["metadata"]
     expected_model_version = str(model_metadata["version"])
     expected_model_file_id = str(model_metadata["source_file_id"])
 
-    cache_entry = cache_index.get(calibrant_file_id)
-    cache_valid = (
-        bool(cache_entry)
-        and Path(str(cache_entry.get("poni_path", ""))).exists()
-        and str(cache_entry.get("model_version", "")) == expected_model_version
-        and str(cache_entry.get("model_source_file_id", "")) == expected_model_file_id
+    # Try to use cached PONI
+    cache_entry = cache.get_entry_for_calibrant(
+        calibrant_file_id, expected_model_version, expected_model_file_id
     )
 
-    if cache_valid:
-        poni_path = str(cache_entry["poni_path"])
-        geometry = _load_geometry_from_poni(poni_path)
+    if cache_entry:
+        geometry = load_geometry_from_poni(cache_entry.poni_path)
         cache_hit = True
+        poni_path = str(cache_entry.poni_path)
     else:
         # If a matching precompute run is already working on this calibrant,
         # wait for it and retry instead of duplicating expensive calibration.
         if _has_inflight_calibration_precompute(context, calibrant_file_id):
             raise RetryRequested(max_retries=10, seconds_to_wait=60)
 
+        # Perform calibration
         latest_xrd = _read_xrd_h5_from_file_id(gc, calibrant_file_id)
         calibrator = _build_calibrator(calibration_model_payload["model_path"], model_metadata)
-        poni_path = str(cache_dir / f"{calibrant_file_id}.poni")
+        poni_path = str(cache.cache_dir / f"{calibrant_file_id}.poni")
         geometry = calibrator.calibrate(latest_xrd, output_path=poni_path)
         cache_hit = False
 
-        cache_index[calibrant_file_id] = {
-            "poni_path": poni_path,
-            "calibrant_scan_file_id": calibrant_file_id,
-            "calibrant_scan_file_name": latest_calibrant["file_name"],
-            "calibrant_scan_updated": latest_calibrant["updated"],
-            "model_version": expected_model_version,
-            "model_source_file_id": expected_model_file_id,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        _write_calibration_cache_index(cache_index_path, cache_index)
+        # Save to cache
+        cache.save_entry(
+            calibrant_file_id=calibrant_file_id,
+            poni_path=Path(poni_path),
+            calibrant_scan_file_name=latest_calibrant["file_name"],
+            calibrant_scan_updated=latest_calibrant["updated"],
+            model_version=expected_model_version,
+            model_source_file_id=expected_model_file_id,
+        )
 
     return {
         "geometry": geometry,
-        "poni_path": str(poni_path),
+        "poni_path": poni_path,
         "calibrant_scan_file_id": calibrant_file_id,
         "calibrant_scan_file_name": latest_calibrant["file_name"],
         "cache_hit": cache_hit,
@@ -311,18 +268,18 @@ def xrdxrf_scans(context: AssetExecutionContext):
     experiment_folder_id = _require_partition_key(context)
 
     experiment_folder = gc.getFolder(experiment_folder_id)
-    raw_folder = _find_child_folder_by_name(gc, experiment_folder_id, "raw")
+    raw_folder = find_child_folder_by_name(gc, experiment_folder_id, "raw")
     if not raw_folder:
         raise ValueError(f"No 'raw' folder found under experiment folder {experiment_folder_id}")
 
     scans: dict[int, dict[str, Any]] = {}
 
     for item in gc.listItem(raw_folder["_id"]):
-        item_igsn = _get_optional_igsn(item)
+        item_igsn = get_optional_igsn(item)
         for file_obj in gc.listFile(item["_id"]):
             file_name = str(file_obj.get("name", ""))
-            h5_match = _H5_SCAN_PATTERN.match(file_name)
-            xrf_match = _XRF_SCAN_PATTERN.match(file_name)
+            h5_match = H5_SCAN_PATTERN.match(file_name)
+            xrf_match = XRF_SCAN_PATTERN.match(file_name)
             if not h5_match and not xrf_match:
                 continue
 
@@ -361,11 +318,11 @@ def xrdxrf_scans(context: AssetExecutionContext):
 def calibration_model(context: AssetExecutionContext):
     gc = context.resources.GirderClient
 
-    model_source_id = os.getenv("GIRDER_MODEL_ITEM_OR_FILE_ID")
-    if not model_source_id:
-        raise ValueError("GIRDER_MODEL_ITEM_OR_FILE_ID is not configured.")
+    model_item_id = os.getenv("GIRDER_MODEL_ITEM_ID")
+    if not model_item_id:
+        raise ValueError("GIRDER_MODEL_ITEM_ID is not configured.")
 
-    file_info, meta, file_name = _resolve_model_file(gc, model_source_id)
+    file_info, meta, file_name = _resolve_model_file(gc, model_item_id)
 
     meta_fields = meta.get("params") if isinstance(meta.get("params"), dict) else meta
     required_fields = ("calibrant", "detector", "energy", "version")
@@ -482,57 +439,54 @@ def publish_xrd_results(
         )
         uploaded_files.append(poni_file.name)
 
-    for scan_id, dataframe in azimuthal_integration.items():
-        filename = f"scan_point_{int(scan_id)}_azimuthal.csv"
-        payload = dataframe.to_csv(index=False).encode("utf-8")
-        scan_metadata = {}
+    # Use results_publisher utility to handle XRD result uploads with deduplication
+    def get_scan_metadata(scan_id: int) -> dict:
+        """Extract metadata for a specific scan."""
+        metadata = {}
         igsn = xrdxrf_scans["scans"].get(scan_id, {}).get("igsn")
         if igsn:
-            scan_metadata["igsn"] = igsn
-        _upload_bytes_as_item_file(
+            metadata["igsn"] = igsn
+        return metadata
+    
+    # Upload azimuthal integration results
+    uploaded_files.extend(
+        upload_result_batch(
             gc=gc,
             folder_id=experiment_folder_id,
-            filename=filename,
-            payload=payload,
-            mime_type="text/csv",
-            item_metadata=scan_metadata or None,
+            results=azimuthal_integration,
+            scan_metadata_getter=get_scan_metadata,
+            result_type="azimuthal",
+            upload_fn=_upload_bytes_as_item_file,
         )
-        uploaded_files.append(filename)
-
-    for scan_id, dataframe in lattice_parameters.items():
-        filename = f"scan_point_{int(scan_id)}_lattice_parameters.csv"
-        payload = dataframe.to_csv(index=False).encode("utf-8")
-        scan_metadata = {}
-        igsn = xrdxrf_scans["scans"].get(scan_id, {}).get("igsn")
-        if igsn:
-            scan_metadata["igsn"] = igsn
-        _upload_bytes_as_item_file(
+    )
+    
+    # Upload lattice parameters results
+    uploaded_files.extend(
+        upload_result_batch(
             gc=gc,
             folder_id=experiment_folder_id,
-            filename=filename,
-            payload=payload,
-            mime_type="text/csv",
-            item_metadata=scan_metadata or None,
+            results=lattice_parameters,
+            scan_metadata_getter=get_scan_metadata,
+            result_type="lattice_parameters",
+            upload_fn=_upload_bytes_as_item_file,
         )
-        uploaded_files.append(filename)
+    )
 
-    manifest = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "run_id": _get_current_run_id(context),
-        "experiment": {
-            "folder_id": experiment_folder_id,
-            "name": experiment_name,
-            "partition_key": str(context.partition_key) if context.has_partition_key else None,
-        },
-        "model": calibration_model["metadata"],
-        "calibration": {
+    # Build and upload manifest using utility function
+    manifest = build_run_manifest(
+        experiment_folder_id=experiment_folder_id,
+        experiment_name=experiment_name,
+        partition_key=str(context.partition_key) if context.has_partition_key else None,
+        model_metadata=calibration_model["metadata"],
+        calibration_metadata={
             "calibrant_scan_file_id": poni["calibrant_scan_file_id"],
             "calibrant_scan_file_name": poni["calibrant_scan_file_name"],
             "cache_hit": bool(poni["cache_hit"]),
             "poni_filename": poni_file.name,
         },
-        "artifacts": sorted(uploaded_files),
-    }
+        run_id=_get_current_run_id(context),
+        artifacts=sorted(uploaded_files),
+    )
 
     _upload_bytes_as_item_file(
         gc=gc,

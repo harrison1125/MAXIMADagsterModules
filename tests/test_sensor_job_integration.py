@@ -38,13 +38,13 @@ class _FakeGirderClient:
 
 
 def test_job_uses_experiment_dynamic_partitions():
-    resolved_job = defs.resolve_job_def("xrd_test_job")
+    resolved_job = defs.resolve_job_def("xrd")
     assert resolved_job.partitions_def is experiment_partitions
 
 
 def test_calibration_precompute_job_is_registered():
-    resolved_job = defs.resolve_job_def("calibration_precompute_job")
-    assert resolved_job.name == "calibration_precompute_job"
+    resolved_job = defs.resolve_job_def("calibration_precompute")
+    assert resolved_job.name == "calibration_precompute"
 
 
 def test_sensor_emits_partitioned_run_request(monkeypatch):
@@ -58,7 +58,7 @@ def test_sensor_emits_partitioned_run_request(monkeypatch):
     assert len(run_requests) == 1
 
     run_request = run_requests[0]
-    assert run_request.job_name == "xrd_test_job"
+    assert run_request.job_name == "xrd"
     assert run_request.partition_key == "exp_01"
     assert run_request.run_key == "experiment:exp_01"
 
@@ -80,7 +80,7 @@ def test_calibration_sensor_emits_precompute_run_request(monkeypatch):
     assert len(run_requests) == 1
 
     run_request = run_requests[0]
-    assert run_request.job_name == "calibration_precompute_job"
+    assert run_request.job_name == "calibration_precompute"
     assert run_request.run_key == "calibrant:cal_file_1"
     assert run_request.tags["calibrant_scan_file_id"] == "cal_file_1"
 
