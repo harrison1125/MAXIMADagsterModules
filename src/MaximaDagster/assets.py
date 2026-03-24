@@ -178,14 +178,12 @@ def _ensure_cached_poni(
     latest_calibrant = _latest_calibrant_scan(gc, calibrants_folder_id)
     calibrant_file_id = latest_calibrant["file_id"]
 
-    # Initialize cache manager
     cache = CalibrationCache()
 
     model_metadata = calibration_model_payload["metadata"]
     expected_model_version = str(model_metadata["version"])
     expected_model_file_id = str(model_metadata["source_file_id"])
 
-    # Try to use cached PONI
     cache_entry = cache.get_entry_for_calibrant(
         calibrant_file_id, expected_model_version, expected_model_file_id
     )
@@ -200,14 +198,14 @@ def _ensure_cached_poni(
         if _has_inflight_calibration_precompute(context, calibrant_file_id):
             raise RetryRequested(max_retries=10, seconds_to_wait=60)
 
-        # Perform calibration
+
         latest_xrd = _read_xrd_h5_from_file_id(gc, calibrant_file_id)
         calibrator = _build_calibrator(calibration_model_payload["model_path"], model_metadata)
         poni_path = str(cache.cache_dir / f"{calibrant_file_id}.poni")
         geometry = calibrator.calibrate(latest_xrd, output_path=poni_path)
         cache_hit = False
 
-        # Save to cache
+ 
         cache.save_entry(
             calibrant_file_id=calibrant_file_id,
             poni_path=Path(poni_path),
@@ -439,7 +437,7 @@ def publish_xrd_results(
         )
         uploaded_files.append(poni_file.name)
 
-    # Use results_publisher utility to handle XRD result uploads with deduplication
+   
     def get_scan_metadata(scan_id: int) -> dict:
         """Extract metadata for a specific scan."""
         metadata = {}
@@ -448,7 +446,7 @@ def publish_xrd_results(
             metadata["igsn"] = igsn
         return metadata
     
-    # Upload azimuthal integration results
+   
     uploaded_files.extend(
         upload_result_batch(
             gc=gc,
@@ -460,7 +458,7 @@ def publish_xrd_results(
         )
     )
     
-    # Upload lattice parameters results
+   
     uploaded_files.extend(
         upload_result_batch(
             gc=gc,
@@ -472,7 +470,7 @@ def publish_xrd_results(
         )
     )
 
-    # Build and upload manifest using utility function
+
     manifest = build_run_manifest(
         experiment_folder_id=experiment_folder_id,
         experiment_name=experiment_name,

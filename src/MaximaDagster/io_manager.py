@@ -17,6 +17,7 @@ class GirderIOManager(IOManager):
     - load_input(): Download from source_folder_id
     - handle_output(): Upload to target_folder_id
     Enables asset chaining and data persistence.
+    NOT CURRENTLY ENABLED
     """
 
     def __init__(
