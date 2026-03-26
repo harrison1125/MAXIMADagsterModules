@@ -5,7 +5,7 @@ from .sensors import calibration_scan_sensor, experiment_folder_sensor, experime
 
 xrd = define_asset_job(
     name="xrd",
-    selection=["xrdxrf_scans", "calibration_model", "poni", "azimuthal_integration", "lattice_parameters", "publish_xrd_results"],
+    selection=["xrdxrf_scans", "calibration_model", "poni", "azimuthal_integration", "publish_xrd_results"],
 )
 
 xrf = define_asset_job(
@@ -15,7 +15,7 @@ xrf = define_asset_job(
 
 xrdxrf = define_asset_job(
     name="xrdxrf",
-    selection=["xrdxrf_scans", "calibration_model", "poni", "azimuthal_integration", "lattice_parameters", "publish_xrd_results", "pymca_config", "mca", "xrf_fit", "concentrations"],
+    selection=["xrdxrf_scans", "calibration_model", "poni", "azimuthal_integration", "publish_xrd_results", "pymca_config", "mca", "xrf_fit", "concentrations"],
 )
 
 calibration_precompute = define_asset_job(
@@ -24,7 +24,7 @@ calibration_precompute = define_asset_job(
 )
 
 defs = Definitions(
-    assets=[xrdxrf_scans, calibration_model, pymca_config, poni, azimuthal_integration, lattice_parameters, publish_xrd_results, mca, xrf_fit, concentrations],
+    assets=[xrdxrf_scans, calibration_model, pymca_config, poni, azimuthal_integration, publish_xrd_results, mca, xrf_fit, concentrations],
     jobs=[xrd, xrf, xrdxrf, calibration_precompute],
     sensors=[experiment_folder_sensor, calibration_scan_sensor],
     resources={

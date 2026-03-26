@@ -1,9 +1,6 @@
 import io
-import json
 import os
-import re
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,18 +16,22 @@ from dagster import (
 from dagster._core.errors import DagsterInvalidPropertyError
 from pyFAI.geometry import Geometry
 
-from .config import load_girder_folder_config
-from .girder_helpers import find_child_folder_by_name, get_child_folders, get_optional_igsn
+from .girder_helpers import find_child_folder_by_name, get_optional_igsn
 from .modules import (
     AzimuthalIntegrator,
     ConverterXRFtoMCA,
-    LatticeParameters,
     MCAtoFit,
     concentrations as concentrations_module,
 )
 from .patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN, XRF_SCAN_PATTERN
 from .poni_manager import CalibrationCache, load_geometry_from_poni
-from .results_publisher import build_run_manifest, upload_result_batch
+from .results_publisher import (
+    build_calibrant_metadata,
+    build_model_metadata,
+    build_poni_linkage_metadata,
+    build_prov_metadata,
+    upload_result_batch,
+)
 from .sensors import experiment_partitions
 
 
@@ -101,6 +102,7 @@ def _latest_calibrant_scan(gc: Any, calibrants_folder_id: str, include_xrd: bool
             candidates.append(
                 {
                     "file_id": str(file_obj["_id"]),
+                    "item_id": str(item["_id"]),
                     "file_name": file_name,
                     "updated": str(file_obj.get("updated") or item_updated),
                 }
@@ -219,6 +221,7 @@ def _ensure_cached_poni(
         "geometry": geometry,
         "poni_path": poni_path,
         "calibrant_scan_file_id": calibrant_file_id,
+        "calibrant_scan_item_id": latest_calibrant["item_id"],
         "calibrant_scan_file_name": latest_calibrant["file_name"],
         "cache_hit": cache_hit,
     }
@@ -258,6 +261,27 @@ def _upload_bytes_as_item_file(
     if item_metadata:
         gc.addMetadataToItem(item["_id"], item_metadata)
     return uploaded
+
+
+def _resolve_model_item_id(gc: Any, model_metadata: dict[str, Any]) -> str:
+    configured_item_id = str(os.getenv("GIRDER_MODEL_ITEM_ID") or "").strip()
+    if configured_item_id:
+        return configured_item_id
+
+    source_file_id = str(model_metadata.get("source_file_id") or "").strip()
+    if not source_file_id:
+        raise ValueError("Unable to determine model item id: source_file_id is missing.")
+
+    source_file = gc.getFile(source_file_id)
+    item_id = str(source_file.get("itemId") or "").strip()
+    if not item_id:
+        raise ValueError(f"Unable to determine model item id from source file {source_file_id}.")
+    return item_id
+
+
+def _resolve_calibrant_item_igsn(gc: Any, calibrant_item_id: str) -> str | None:
+    calibrant_item = gc.getItem(calibrant_item_id)
+    return get_optional_igsn(calibrant_item)
 
 
 @asset(required_resource_keys={"GirderClient"}, partitions_def=experiment_partitions)
@@ -407,6 +431,8 @@ def azimuthal_integration(xrdxrf_scans, poni):
 
 @asset(partitions_def=experiment_partitions)
 def lattice_parameters(azimuthal_integration):
+    from .modules import LatticeParameters
+
     return LatticeParameters.process_integrated_dict(azimuthal_integration)
 
 
@@ -417,83 +443,84 @@ def publish_xrd_results(
     calibration_model,
     poni,
     azimuthal_integration,
-    lattice_parameters,
 ):
     gc = context.resources.GirderClient
 
     experiment_folder_id = str(xrdxrf_scans["experiment_folder_id"])
     experiment_name = str(xrdxrf_scans["experiment_name"])
+    girder_url = str(os.getenv("GIRDER_API_URL") or "")
+    run_id = _get_current_run_id(context)
 
     uploaded_files: list[str] = []
 
     poni_file = Path(poni["poni_path"])
-    if poni_file.exists():
-        _upload_bytes_as_item_file(
-            gc=gc,
-            folder_id=experiment_folder_id,
-            filename=poni_file.name,
-            payload=poni_file.read_bytes(),
-            mime_type="application/octet-stream",
-        )
-        uploaded_files.append(poni_file.name)
+    if not poni_file.exists():
+        raise ValueError(f"Expected PONI file at {poni_file}, but it was not found.")
 
-   
-    def get_scan_metadata(scan_id: int) -> dict:
-        """Extract metadata for a specific scan."""
-        metadata = {}
+    model_metadata = calibration_model["metadata"]
+    model_item_id = _resolve_model_item_id(gc, model_metadata)
+    calibrant_item_id = str(poni.get("calibrant_scan_item_id") or "").strip()
+    if not calibrant_item_id:
+        calibrant_file = gc.getFile(poni["calibrant_scan_file_id"])
+        calibrant_item_id = str(calibrant_file.get("itemId") or "").strip()
+    if not calibrant_item_id:
+        raise ValueError("Unable to determine calibrant item id for metadata linkage.")
+
+    calibrant_igsn = _resolve_calibrant_item_igsn(gc, calibrant_item_id)
+
+    poni_metadata = {
+        "prov": build_prov_metadata(run_id),
+        "model": build_model_metadata(
+            model_version=str(model_metadata["version"]),
+            model_item_id=model_item_id,
+            girder_url=girder_url,
+        ),
+        "calibrant": build_calibrant_metadata(
+            calibrant_item_id=calibrant_item_id,
+            girder_url=girder_url,
+            igsn=calibrant_igsn,
+        ),
+        "cache_hit": bool(poni["cache_hit"]),
+    }
+
+    _upload_bytes_as_item_file(
+        gc=gc,
+        folder_id=experiment_folder_id,
+        filename=poni_file.name,
+        payload=poni_file.read_bytes(),
+        mime_type="application/octet-stream",
+        item_metadata=poni_metadata,
+    )
+    uploaded_files.append(poni_file.name)
+
+    poni_item_id = str(gc.loadOrCreateItem(poni_file.name, experiment_folder_id)["_id"])
+    azimuthal_base_metadata = {
+        "prov": build_prov_metadata(run_id),
+        "poni": build_poni_linkage_metadata(
+            poni_item_id=poni_item_id,
+            girder_url=girder_url,
+            geometry=poni["geometry"],
+        ),
+    }
+
+    def get_scan_metadata(scan_id: int) -> dict[str, Any]:
+        metadata = dict(azimuthal_base_metadata)
         igsn = xrdxrf_scans["scans"].get(scan_id, {}).get("igsn")
         if igsn:
             metadata["igsn"] = igsn
         return metadata
-    
-   
+
     uploaded_files.extend(
         upload_result_batch(
             gc=gc,
             folder_id=experiment_folder_id,
             results=azimuthal_integration,
             scan_metadata_getter=get_scan_metadata,
+
             result_type="azimuthal",
             upload_fn=_upload_bytes_as_item_file,
         )
     )
-    
-   
-    uploaded_files.extend(
-        upload_result_batch(
-            gc=gc,
-            folder_id=experiment_folder_id,
-            results=lattice_parameters,
-            scan_metadata_getter=get_scan_metadata,
-            result_type="lattice_parameters",
-            upload_fn=_upload_bytes_as_item_file,
-        )
-    )
-
-
-    manifest = build_run_manifest(
-        experiment_folder_id=experiment_folder_id,
-        experiment_name=experiment_name,
-        partition_key=str(context.partition_key) if context.has_partition_key else None,
-        model_metadata=calibration_model["metadata"],
-        calibration_metadata={
-            "calibrant_scan_file_id": poni["calibrant_scan_file_id"],
-            "calibrant_scan_file_name": poni["calibrant_scan_file_name"],
-            "cache_hit": bool(poni["cache_hit"]),
-            "poni_filename": poni_file.name,
-        },
-        run_id=_get_current_run_id(context),
-        artifacts=sorted(uploaded_files),
-    )
-
-    _upload_bytes_as_item_file(
-        gc=gc,
-        folder_id=experiment_folder_id,
-        filename="xrd_run_manifest.json",
-        payload=json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8"),
-        mime_type="application/json",
-    )
-    uploaded_files.append("xrd_run_manifest.json")
 
     context.log.info(f"Uploaded {len(uploaded_files)} XRD artifact(s) to experiment folder {experiment_name}")
 

@@ -52,6 +52,7 @@ class PoniPayload(TypedDict):
     geometry: Geometry
     poni_path: str
     calibrant_scan_file_id: str
+    calibrant_scan_item_id: str
     calibrant_scan_file_name: str
     cache_hit: bool
 

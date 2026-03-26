@@ -78,6 +78,27 @@ class _FakePublishGirderClient:
 	def addMetadataToItem(self, item_id, metadata):
 		self.metadata_calls.append((item_id, metadata))
 
+	def getFile(self, file_id):
+		if file_id == "cal_file":
+			return {"_id": "cal_file", "itemId": "cal_item"}
+		if file_id == "model_file":
+			return {"_id": "model_file", "itemId": "model_item"}
+		raise AssertionError(file_id)
+
+	def getItem(self, item_id):
+		if item_id == "cal_item":
+			return {"_id": "cal_item", "meta": {"igsn": "CAL-IGSN-1"}}
+		raise AssertionError(item_id)
+
+
+class _GeometryStub:
+	dist = 1.1
+	poni1 = 2.2
+	poni2 = 3.3
+	rot1 = 4.4
+	rot2 = 5.5
+	rot3 = 6.6
+
 
 def test_xrdxrf_scans_passes_igsn_through(tmp_path, monkeypatch):
 	monkeypatch.chdir(tmp_path)
@@ -97,6 +118,8 @@ def test_xrdxrf_scans_passes_igsn_through(tmp_path, monkeypatch):
 
 def test_publish_xrd_results_adds_igsn_metadata_to_csv_items(tmp_path, monkeypatch):
 	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("GIRDER_API_URL", "https://girder.example/api/v1")
+	monkeypatch.setenv("GIRDER_MODEL_ITEM_ID", "model_item")
 
 	poni_path = tmp_path / "calibration.poni"
 	poni_path.write_text("poni", encoding="utf-8")
@@ -112,17 +135,15 @@ def test_publish_xrd_results_adds_igsn_metadata_to_csv_items(tmp_path, monkeypat
 	calibration_model = {"metadata": {"version": "1.0", "source_file_id": "model_file"}}
 	poni = {
 		"poni_path": str(poni_path),
+		"geometry": _GeometryStub(),
 		"calibrant_scan_file_id": "cal_file",
+		"calibrant_scan_item_id": "cal_item",
 		"calibrant_scan_file_name": "xrd_calibrant_data_000001.h5",
 		"cache_hit": True,
 	}
 	azimuthal_integration = {
 		0: pd.DataFrame({"q_nm^-1": [1.0], "intensity": [2.0]}),
 		1: pd.DataFrame({"q_nm^-1": [3.0], "intensity": [4.0]}),
-	}
-	lattice_parameters = {
-		0: pd.DataFrame({"a_nm_avg": [0.5]}),
-		1: pd.DataFrame({"a_nm_avg": [0.6]}),
 	}
 
 	assets.publish_xrd_results(
@@ -131,7 +152,6 @@ def test_publish_xrd_results_adds_igsn_metadata_to_csv_items(tmp_path, monkeypat
 		calibration_model=calibration_model,
 		poni=poni,
 		azimuthal_integration=azimuthal_integration,
-		lattice_parameters=lattice_parameters,
 	)
 
 	metadata_by_item_name = {
@@ -141,7 +161,40 @@ def test_publish_xrd_results_adds_igsn_metadata_to_csv_items(tmp_path, monkeypat
 		if metadata_item_id == item["_id"]
 	}
 
-	assert metadata_by_item_name["scan_point_0_azimuthal.csv"] == {"igsn": "IGSN-123"}
-	assert metadata_by_item_name["scan_point_0_lattice_parameters.csv"] == {"igsn": "IGSN-123"}
-	assert "scan_point_1_azimuthal.csv" not in metadata_by_item_name
-	assert "scan_point_1_lattice_parameters.csv" not in metadata_by_item_name
+	poni_metadata = metadata_by_item_name["calibration.poni"]
+	assert set(poni_metadata.keys()) == {"prov", "model", "calibrant", "cache_hit"}
+	assert poni_metadata["cache_hit"] is True
+	assert poni_metadata["model"] == {
+		"version": "1.0",
+		"item_id": "model_item",
+		"link": "https://girder.example/#item/model_item",
+	}
+	assert poni_metadata["calibrant"] == {
+		"item_id": "cal_item",
+		"link": "https://girder.example/#item/cal_item",
+		"igsn": "CAL-IGSN-1",
+	}
+
+	az0 = metadata_by_item_name["scan_point_0_azimuthal.csv"]
+	assert az0["igsn"] == "IGSN-123"
+	assert set(az0.keys()) == {"prov", "poni", "igsn"}
+	assert az0["poni"] == {
+		"item_id": gc._items["calibration.poni"]["_id"],
+		"link": f"https://girder.example/#item/{gc._items['calibration.poni']['_id']}",
+		"geometry": {
+			"dist": 1.1,
+			"poni1": 2.2,
+			"poni2": 3.3,
+			"rot1": 4.4,
+			"rot2": 5.5,
+			"rot3": 6.6,
+		},
+	}
+
+	az1 = metadata_by_item_name["scan_point_1_azimuthal.csv"]
+	assert set(az1.keys()) == {"prov", "poni"}
+	assert "igsn" not in az1
+
+	assert "xrd_run_manifest.json" not in gc._items
+	assert "scan_point_0_lattice_parameters.csv" not in gc._items
+	assert "scan_point_1_lattice_parameters.csv" not in gc._items
