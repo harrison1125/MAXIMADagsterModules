@@ -5,13 +5,11 @@ from typing import List
 
 
 __all__: List[str] = [
-	"AbsorptionCorrection",
 	"AzimuthalIntegrator",
 	"calibrate",
 	"concentrations",
 	"ConverterXRFtoMCA",
 	"LatticeParameters",
-	"Inputs",
 	"MCAtoFit",
 ]
 

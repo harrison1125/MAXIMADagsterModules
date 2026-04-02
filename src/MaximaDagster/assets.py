@@ -16,16 +16,16 @@ from dagster import (
 from dagster._core.errors import DagsterInvalidPropertyError
 from pyFAI.geometry import Geometry
 
-from .girder_helpers import find_child_folder_by_name, get_optional_igsn
+from .utils.girder_helpers import find_child_folder_by_name, get_optional_igsn
 from .modules import (
     AzimuthalIntegrator,
     ConverterXRFtoMCA,
     MCAtoFit,
     concentrations as concentrations_module,
 )
-from .patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN, XRF_SCAN_PATTERN
-from .poni_manager import CalibrationCache, load_geometry_from_poni
-from .results_publisher import (
+from .utils.patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN, XRF_SCAN_PATTERN
+from .utils.poni_manager import CalibrationCache, load_geometry_from_poni
+from .utils.results_publisher import (
     build_calibrant_metadata,
     build_model_metadata,
     build_poni_linkage_metadata,
@@ -83,11 +83,6 @@ def _resolve_model_file(gc: Any, model_item_id: str) -> tuple[dict[str, Any], di
         raise ValueError(f"Expected a .pth model file, got {file_name}")
     
     return file_info, meta, file_name
-
-
-def _load_geometry_from_poni(poni_path: str) -> Geometry:
-    """Compatibility shim for load_geometry_from_poni."""
-    return load_geometry_from_poni(poni_path)
 
 
 def _latest_calibrant_scan(gc: Any, calibrants_folder_id: str, include_xrd: bool = False) -> dict[str, Any]:

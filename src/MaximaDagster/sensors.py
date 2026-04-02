@@ -11,8 +11,8 @@ from dagster import (
     sensor,
 )
 
-from .girder_helpers import find_child_folder_by_name, get_child_folders
-from .patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN
+from .utils.girder_helpers import find_child_folder_by_name, get_child_folders
+from .utils.patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN
 
 
 experiment_partitions = DynamicPartitionsDefinition(name="experiments")

@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 
 from MaximaDagster import assets
-from MaximaDagster.girder_helpers import get_child_folders, find_child_folder_by_name, get_optional_igsn
-from MaximaDagster.patterns import H5_SCAN_PATTERN, CALIBRANT_SCAN_PATTERN, XRF_SCAN_PATTERN
+from MaximaDagster.utils.girder_helpers import get_child_folders, find_child_folder_by_name, get_optional_igsn
+from MaximaDagster.utils.patterns import H5_SCAN_PATTERN, CALIBRANT_SCAN_PATTERN, XRF_SCAN_PATTERN
 
 
 class FakeGirderClient:
