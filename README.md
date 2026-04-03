@@ -30,8 +30,13 @@ and publishes processed XRD outputs back to Girder.
 
 ## Repository Layout
 
-- `src/MaximaDagster/`: Dagster definitions, assets, sensors, resources, and modules.
-- `tests/`: pytest coverage for assets, modules, and sensor behavior.
+- `src/MaximaDagster/`: Python package for the Dagster project.
+- `src/MaximaDagster/definitions.py`: Dagster definitions and job wiring.
+- `src/MaximaDagster/assets.py`, `sensors.py`, `resources.py`, `io_manager.py`: core Dagster configuration and orchestration.
+- `src/MaximaDagster/modules/`: XRD/XRF processing modules and pipeline steps.
+- `src/MaximaDagster/utils/`: shared Girder, pattern, PONI, and results publishing helpers.
+- `src/MaximaDagster/defs/`: package namespace for Dagster definition exports.
+- `tests/`: pytest coverage for assets, modules, and sensor/integration behavior.
 - `data/`: local cache for models and calibration outputs.
 - `dagster_home/`: Dagster instance configuration and run/storage artifacts.
 - `docker-compose.yml` and `Dockerfile`: containerized runtime.
