@@ -11,6 +11,14 @@ from dagster import (
     sensor,
 )
 
+from .utils.discovery import (
+    DISCOVERY_BACKEND_DATAFILES,
+    call_with_retries,
+    get_discovery_backend,
+    latest_calibrant_candidate_from_datafiles,
+    list_experiment_candidates_from_datafiles,
+    should_allow_discovery_fallback,
+)
 from .utils.girder_helpers import find_child_folder_by_name, get_child_folders
 from .utils.patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN
 
@@ -89,6 +97,41 @@ def _serialize_last_calibrant_file_id(file_id: str) -> str:
     return json.dumps({"last_calibrant_file_id": file_id})
 
 
+def _list_candidate_experiments_legacy(gc: Any, root_folder_id: str, calibrants_folder_id: str | None) -> list[dict[str, Any]]:
+    candidate_experiments: list[dict[str, Any]] = []
+    for folder in _get_child_folders(gc, root_folder_id):
+        folder_id = str(folder.get("_id", ""))
+        if not folder_id or folder_id == calibrants_folder_id:
+            continue
+
+        raw_folder = _find_child_folder_by_name(gc, folder_id, "raw")
+        if not raw_folder:
+            continue
+
+        if _raw_folder_has_scan_files(gc, str(raw_folder["_id"])):
+            candidate_experiments.append(folder)
+    return candidate_experiments
+
+
+def _list_candidate_experiments_datafiles(gc: Any, context: SensorEvaluationContext) -> list[dict[str, Any]]:
+    rows = call_with_retries(list_experiment_candidates_from_datafiles, gc)
+    return [
+        {
+            "_id": row.experiment_folder_id,
+            "name": row.experiment_folder_name,
+            "raw_folder_id": row.raw_folder_id,
+        }
+        for row in rows
+    ]
+
+
+def _latest_calibrant_scan_file_id_datafiles(gc: Any) -> str | None:
+    candidate = call_with_retries(latest_calibrant_candidate_from_datafiles, gc)
+    if not candidate:
+        return None
+    return candidate.file_id
+
+
 @sensor(
     name="calibration_scan_sensor",
     job_name="calibration_precompute",
@@ -101,7 +144,22 @@ def calibration_scan_sensor(context: SensorEvaluationContext, GirderClient=None)
         return SkipReason("GIRDER_CALIBRANTS_FOLDER_ID is not configured.")
 
     gc = GirderClient or context.resources.GirderClient
-    latest_file_id = _latest_calibrant_scan_file_id(gc, calibrants_folder_id)
+    backend = get_discovery_backend()
+
+    try:
+        if backend == DISCOVERY_BACKEND_DATAFILES:
+            latest_file_id = _latest_calibrant_scan_file_id_datafiles(gc)
+        else:
+            latest_file_id = _latest_calibrant_scan_file_id(gc, calibrants_folder_id)
+    except Exception as exc:
+        if backend == DISCOVERY_BACKEND_DATAFILES and should_allow_discovery_fallback():
+            context.log.warning(
+                "Datafiles calibrant discovery failed (%s). Falling back to legacy discovery.",
+                exc,
+            )
+            latest_file_id = _latest_calibrant_scan_file_id(gc, calibrants_folder_id)
+        else:
+            raise
 
     if not latest_file_id:
         return SkipReason("No calibrant scan files were detected.")
@@ -138,19 +196,32 @@ def experiment_folder_sensor(context: SensorEvaluationContext, GirderClient=None
     gc = GirderClient or context.resources.GirderClient
 
     previously_seen = _parse_seen_folder_ids(context.cursor)
+    backend = get_discovery_backend()
 
-    candidate_experiments: list[dict[str, Any]] = []
-    for folder in _get_child_folders(gc, root_folder_id):
-        folder_id = str(folder.get("_id", ""))
-        if not folder_id or folder_id == calibrants_folder_id:
-            continue
-
-        raw_folder = _find_child_folder_by_name(gc, folder_id, "raw")
-        if not raw_folder:
-            continue
-
-        if _raw_folder_has_scan_files(gc, str(raw_folder["_id"])):
-            candidate_experiments.append(folder)
+    try:
+        if backend == DISCOVERY_BACKEND_DATAFILES:
+            candidate_experiments = _list_candidate_experiments_datafiles(gc, context)
+            if calibrants_folder_id:
+                candidate_experiments = [
+                    exp
+                    for exp in candidate_experiments
+                    if str(exp.get("_id", "")) != calibrants_folder_id
+                ]
+        else:
+            candidate_experiments = _list_candidate_experiments_legacy(gc, root_folder_id, calibrants_folder_id)
+    except Exception as exc:
+        if backend == DISCOVERY_BACKEND_DATAFILES and should_allow_discovery_fallback():
+            context.log.warning(
+                "Datafiles experiment discovery failed (%s). Falling back to legacy discovery.",
+                exc,
+            )
+            candidate_experiments = _list_candidate_experiments_legacy(
+                gc,
+                root_folder_id,
+                calibrants_folder_id,
+            )
+        else:
+            raise
 
     if not candidate_experiments:
         return SkipReason("No experiments with raw scan files detected.")
