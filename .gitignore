@@ -144,6 +144,7 @@ ENV/
 env.bak/
 venv.bak/
 .vscode/
+.env.staging
 
 # Spyder project settings
 .spyderproject
@@ -207,6 +208,7 @@ __marimo__/
 .dg/
 .*dagster*
 dagster_home/
+dagster_staging_home/
 
 # Private
 TODO.md
@@ -214,3 +216,6 @@ data/
 
 # Docker
 .dockerignore
+
+# Instructions
+.github/copilot-instructions.md

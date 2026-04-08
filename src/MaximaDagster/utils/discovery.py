@@ -2,6 +2,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any
+from dagster import Out, op
 
 
 DISCOVERY_BACKEND_LEGACY = "legacy"
@@ -40,7 +41,7 @@ def should_allow_discovery_fallback() -> bool:
 
 
 def get_datafiles_limit() -> int:
-    raw = str(os.getenv("DISCOVERY_DATAFILES_LIMIT", "200")).strip()
+    raw = str(os.getenv("DISCOVERY_DATAFILES_LIMIT", "100")).strip()
     try:
         value = int(raw)
     except ValueError:
@@ -48,6 +49,28 @@ def get_datafiles_limit() -> int:
     if value <= 0:
         return 200
     return min(value, 1000)
+
+
+def get_datafiles_max_pages() -> int:
+    raw = str(os.getenv("DISCOVERY_DATAFILES_MAX_PAGES", "10")).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 10
+    if value <= 0:
+        return 0
+    return min(value, 1000)
+
+
+def get_datafiles_max_rows() -> int:
+    raw = str(os.getenv("DISCOVERY_DATAFILES_MAX_ROWS", "2000")).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 2000
+    if value <= 0:
+        return 0
+    return min(value, 100000)
 
 
 def get_datafiles_retry_count() -> int:
@@ -182,14 +205,32 @@ def _fetch_datafiles_page(gc: Any, data_type: str, limit: int, offset: int) -> l
     return rows
 
 
-def _iter_datafiles_rows(gc: Any, data_type: str, limit: int) -> list[dict[str, Any]]:
+def _iter_datafiles_rows(
+    gc: Any,
+    data_type: str,
+    limit: int,
+    max_pages: int,
+    max_rows: int,
+) -> list[dict[str, Any]]:
     all_rows: list[dict[str, Any]] = []
     offset = 0
+    pages_fetched = 0
+
     while True:
+        if max_pages > 0 and pages_fetched >= max_pages:
+            break
+
         page = _fetch_datafiles_page(gc, data_type=data_type, limit=limit, offset=offset)
         if not page:
             break
+
+        pages_fetched += 1
         all_rows.extend(page)
+
+        if max_rows > 0 and len(all_rows) >= max_rows:
+            all_rows = all_rows[:max_rows]
+            break
+
         if len(page) < limit:
             break
         offset += limit
@@ -205,7 +246,13 @@ def _sort_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def list_experiment_candidates_from_datafiles(gc: Any) -> list[ExperimentCandidate]:
-    rows = _iter_datafiles_rows(gc, data_type="xrd_raw", limit=get_datafiles_limit())
+    rows = _iter_datafiles_rows(
+        gc,
+        data_type="xrd_raw",
+        limit=get_datafiles_limit(),
+        max_pages=get_datafiles_max_pages(),
+        max_rows=get_datafiles_max_rows(),
+    )
     rows = _sort_rows(rows)
 
     folder_cache: dict[str, dict[str, Any]] = {}
@@ -249,7 +296,13 @@ def list_experiment_candidates_from_datafiles(gc: Any) -> list[ExperimentCandida
 
 
 def latest_calibrant_candidate_from_datafiles(gc: Any) -> CalibrantCandidate | None:
-    rows = _iter_datafiles_rows(gc, data_type="xrd_calibrant_raw", limit=get_datafiles_limit())
+    rows = _iter_datafiles_rows(
+        gc,
+        data_type="xrd_calibrant_raw",
+        limit=get_datafiles_limit(),
+        max_pages=1,
+        max_rows=get_datafiles_limit(),
+    )
     if not rows:
         return None
 
@@ -286,3 +339,42 @@ def call_with_retries(fn, *args, **kwargs):
     if last_error is None:
         raise DatafilesDiscoveryError("Datafiles call failed without captured exception")
     raise last_error
+
+@op(required_resource_keys={"GirderClient"}, out=Out(dict))
+def discovery_experiments_check(context):
+    gc = context.resources.GirderClient
+    backend = get_discovery_backend()
+
+    rows = call_with_retries(list_experiment_candidates_from_datafiles, gc)
+    sample_ids = [row.experiment_folder_id for row in rows[:10]]
+
+    context.log.info(
+        "Discovery experiments check complete | backend=%s candidate_count=%s sample_ids=%s",
+        backend,
+        len(rows),
+        sample_ids,
+    )
+
+    return {
+        "backend": backend,
+        "candidate_count": len(rows),
+        "sample_experiment_folder_ids": sample_ids,
+    }
+
+
+@op(required_resource_keys={"GirderClient"}, out=Out(dict))
+def discovery_calibrants_check(context):
+    gc = context.resources.GirderClient
+    backend = get_discovery_backend()
+
+    candidate = call_with_retries(latest_calibrant_candidate_from_datafiles, gc)
+
+    payload = {
+        "backend": backend,
+        "latest_file_id": candidate.file_id if candidate else None,
+        "latest_file_name": candidate.file_name if candidate else None,
+        "latest_created": candidate.created if candidate else None,
+    }
+
+    context.log.info("Discovery calibrants check complete | payload=%s", payload)
+    return payload

@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: maxima_postgres
     environment:
       POSTGRES_USER: dagster
       POSTGRES_PASSWORD: dagster
@@ -18,10 +17,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: maxima_dagster_webserver
     command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/app/workspace.yaml"]
     environment:
-      DAGSTER_HOME: /opt/dagster/dagster_home
+      DAGSTER_HOME: /opt/dagster/dagster_staging_home
       GIRDER_API_URL: ${GIRDER_API_URL}
       GIRDER_API_KEY: ${GIRDER_API_KEY}
       GIRDER_ROOT_FOLDER_ID: ${GIRDER_ROOT_FOLDER_ID}
@@ -30,7 +28,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./dagster_home:/opt/dagster/dagster_home
+      - ./dagster_staging_home:/opt/dagster/dagster_staging_home
       - ./data:/opt/dagster/app/data
     depends_on:
       postgres:
@@ -40,17 +38,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: maxima_dagster_daemon
     command: ["dagster-daemon", "run", "--code-server-log-level", "error", "-w", "/opt/dagster/app/workspace.yaml"]
     environment:
-      DAGSTER_HOME: /opt/dagster/dagster_home
+      DAGSTER_HOME: /opt/dagster/dagster_staging_home
       GIRDER_API_URL: ${GIRDER_API_URL}
       GIRDER_API_KEY: ${GIRDER_API_KEY}
       GIRDER_ROOT_FOLDER_ID: ${GIRDER_ROOT_FOLDER_ID}
       GIRDER_CALIBRANTS_FOLDER_ID: ${GIRDER_CALIBRANTS_FOLDER_ID}
-      GIRDER_MODEL_ITEM_OR_FILE_ID: ${GIRDER_MODEL_ITEM_OR_FILE_ID}
+      GIRDER_MODEL_ITEM_ID: ${GIRDER_MODEL_ITEM_ID}
     volumes:
-      - ./dagster_home:/opt/dagster/dagster_home
+      - ./dagster_staging_home:/opt/dagster/dagster_staging_home
       - ./data:/opt/dagster/app/data
     depends_on:
       postgres:
