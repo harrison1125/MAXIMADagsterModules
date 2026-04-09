@@ -47,6 +47,11 @@ class _DatafilesOnlyClient:
             return {"_id": "exp_01", "name": "exp one"}
         raise Exception(f"Unknown folder {folder_id}")
 
+    def listFile(self, item_id):
+        if item_id == "cal_file_001":
+            return [{"_id": "cal_file_001_data", "name": "xrd_calibrant_data_000001.h5"}]
+        return []
+
 
 class _FailingDatafilesWithLegacyClient:
     def get(self, route, parameters=None):
@@ -114,8 +119,8 @@ def test_calibration_sensor_uses_datafiles_backend(monkeypatch):
 
     assert len(evaluation.run_requests) == 1
     run_request = evaluation.run_requests[0]
-    assert run_request.run_key == "calibrant:cal_file_001"
-    assert run_request.tags["calibrant_scan_file_id"] == "cal_file_001"
+    assert run_request.run_key == "calibrant:cal_file_001_data"
+    assert run_request.tags["calibrant_scan_file_id"] == "cal_file_001_data"
 
 
 def test_datafiles_failure_falls_back_to_legacy_experiment_discovery(monkeypatch):

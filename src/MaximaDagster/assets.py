@@ -16,6 +16,14 @@ from dagster import (
 from dagster._core.errors import DagsterInvalidPropertyError
 from pyFAI.geometry import Geometry
 
+from .utils.discovery import (
+    DISCOVERY_BACKEND_DATAFILES,
+    call_with_retries,
+    get_discovery_backend,
+    latest_calibrant_candidate_from_datafiles,
+    list_xrd_scan_candidates_from_datafiles,
+    should_allow_discovery_fallback,
+)
 from .utils.girder_helpers import find_child_folder_by_name, get_optional_igsn
 from .modules import (
     AzimuthalIntegrator,
@@ -86,31 +94,75 @@ def _resolve_model_file(gc: Any, model_item_id: str) -> tuple[dict[str, Any], di
     return file_info, meta, file_name
 
 
-def _latest_calibrant_scan(gc: Any, calibrants_folder_id: str, include_xrd: bool = False) -> dict[str, Any]:
+def _latest_calibrant_scan_legacy(gc: Any, calibrants_folder_id: str, include_xrd: bool = False) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
 
     for item in gc.listItem(calibrants_folder_id):
-        item_updated = str(item.get("updated") or "")
+        item_created = str(item.get("created") or item.get("updated") or "")
         for file_obj in gc.listFile(item["_id"]):
             file_name = str(file_obj.get("name", ""))
             if not CALIBRANT_SCAN_PATTERN.match(file_name):
                 continue
+            created = str(file_obj.get("created") or file_obj.get("updated") or item_created)
             candidates.append(
                 {
                     "file_id": str(file_obj["_id"]),
                     "item_id": str(item["_id"]),
                     "file_name": file_name,
-                    "updated": str(file_obj.get("updated") or item_updated),
+                    "created": created,
+                    "updated": created,
                 }
             )
 
     if not candidates:
         raise ValueError("No calibrant scan .h5 files were found in GIRDER_CALIBRANTS_FOLDER_ID.")
 
-    latest = max(candidates, key=lambda c: (c["updated"], c["file_id"]))
+    latest = max(candidates, key=lambda c: (c["created"], c["file_id"]))
     if include_xrd:
         latest["xrd"] = _read_xrd_h5_from_file_id(gc, latest["file_id"])
     return latest
+
+
+def _latest_calibrant_scan_datafiles(gc: Any, include_xrd: bool = False) -> dict[str, Any]:
+    candidate = call_with_retries(latest_calibrant_candidate_from_datafiles, gc)
+    if candidate is None:
+        raise ValueError("No calibrant scan .h5 files were found via datafiles API.")
+
+    latest = {
+        "file_id": candidate.file_id,
+        "item_id": str(candidate.item_id or ""),
+        "file_name": candidate.file_name,
+        "created": candidate.created,
+        "updated": candidate.created,
+    }
+    if include_xrd:
+        latest["xrd"] = _read_xrd_h5_from_file_id(gc, latest["file_id"])
+    return latest
+
+
+def _latest_calibrant_scan(gc: Any, calibrants_folder_id: str | None, include_xrd: bool = False) -> dict[str, Any]:
+    backend = get_discovery_backend()
+
+    if backend == DISCOVERY_BACKEND_DATAFILES:
+        try:
+            return _latest_calibrant_scan_datafiles(gc, include_xrd=include_xrd)
+        except Exception:
+            if not should_allow_discovery_fallback():
+                raise
+            if not calibrants_folder_id:
+                raise ValueError(
+                    "GIRDER_CALIBRANTS_FOLDER_ID is required when discovery fallback is enabled."
+                )
+            return _latest_calibrant_scan_legacy(
+                gc,
+                calibrants_folder_id=calibrants_folder_id,
+                include_xrd=include_xrd,
+            )
+
+    if not calibrants_folder_id:
+        raise ValueError("GIRDER_CALIBRANTS_FOLDER_ID is not configured.")
+
+    return _latest_calibrant_scan_legacy(gc, calibrants_folder_id=calibrants_folder_id, include_xrd=include_xrd)
 
 
 def _build_calibrator(model_path: str, metadata: dict[str, Any]):
@@ -170,8 +222,6 @@ def _ensure_cached_poni(
     or triggers fresh calibration if needed.
     """
     calibrants_folder_id = os.getenv("GIRDER_CALIBRANTS_FOLDER_ID")
-    if not calibrants_folder_id:
-        raise ValueError("GIRDER_CALIBRANTS_FOLDER_ID is not configured.")
 
     latest_calibrant = _latest_calibrant_scan(gc, calibrants_folder_id)
     calibrant_file_id = latest_calibrant["file_id"]
@@ -191,8 +241,6 @@ def _ensure_cached_poni(
         cache_hit = True
         poni_path = str(cache_entry.poni_path)
     else:
-        # If a matching precompute run is already working on this calibrant,
-        # wait for it and retry instead of duplicating expensive calibration.
         if _has_inflight_calibration_precompute(context, calibrant_file_id):
             raise RetryRequested(max_retries=10, seconds_to_wait=60)
 
@@ -208,7 +256,7 @@ def _ensure_cached_poni(
             calibrant_file_id=calibrant_file_id,
             poni_path=Path(poni_path),
             calibrant_scan_file_name=latest_calibrant["file_name"],
-            calibrant_scan_updated=latest_calibrant["updated"],
+            calibrant_scan_updated=latest_calibrant["created"],
             model_version=expected_model_version,
             model_source_file_id=expected_model_file_id,
         )
@@ -286,48 +334,101 @@ def xrdxrf_scans(context: AssetExecutionContext):
     experiment_folder_id = _require_partition_key(context)
 
     experiment_folder = gc.getFolder(experiment_folder_id)
-    raw_folder = find_child_folder_by_name(gc, experiment_folder_id, "raw")
-    if not raw_folder:
-        raise ValueError(f"No 'raw' folder found under experiment folder {experiment_folder_id}")
-
     scans: dict[int, dict[str, Any]] = {}
 
-    for item in gc.listItem(raw_folder["_id"]):
-        item_igsn = get_optional_igsn(item)
-        for file_obj in gc.listFile(item["_id"]):
-            file_name = str(file_obj.get("name", ""))
-            h5_match = H5_SCAN_PATTERN.match(file_name)
-            xrf_match = XRF_SCAN_PATTERN.match(file_name)
-            if not h5_match and not xrf_match:
-                continue
+    backend = get_discovery_backend()
+    source_rows: list[dict[str, Any]] = []
+    raw_folder_id: str | None = None
 
-            scan_num = int((h5_match or xrf_match).group(1))
-            scans.setdefault(scan_num, {})
-            if item_igsn:
-                existing_igsn = scans[scan_num].get("igsn")
-                if existing_igsn and existing_igsn != item_igsn:
-                    raise ValueError(f"Conflicting IGSN values found for scan {scan_num}: {existing_igsn} vs {item_igsn}")
-                scans[scan_num]["igsn"] = item_igsn
+    if backend == DISCOVERY_BACKEND_DATAFILES:
+        try:
+            candidates = call_with_retries(
+                list_xrd_scan_candidates_from_datafiles,
+                gc,
+                experiment_folder_id,
+            )
+            for candidate in candidates:
+                source_rows.append(
+                    {
+                        "file_id": candidate.file_id,
+                        "file_name": candidate.file_name,
+                        "igsn": candidate.igsn,
+                    }
+                )
+                raw_folder_id = raw_folder_id or candidate.raw_folder_id
+        except Exception as exc:
+            if not should_allow_discovery_fallback():
+                raise
+            context.log.warning(
+                "Datafiles xrd scan discovery failed (%s). Falling back to legacy discovery.",
+                exc,
+            )
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                local_path = os.path.join(tmpdir, file_name)
-                gc.downloadFile(file_obj["_id"], local_path)
+    if not source_rows:
+        raw_folder = find_child_folder_by_name(gc, experiment_folder_id, "raw")
+        if not raw_folder:
+            raise ValueError(f"No 'raw' folder found under experiment folder {experiment_folder_id}")
+        raw_folder_id = str(raw_folder["_id"])
 
-                if h5_match:
-                    with h5py.File(local_path, "r") as h5f:
-                        scans[scan_num]["xrd"] = h5f["entry/data/data"][:][0]
-                else:
-                    with open(local_path, "r", encoding="utf-8", errors="replace") as xrf_file:
-                        scans[scan_num]["xrf"] = xrf_file.read()
+        for item in gc.listItem(raw_folder["_id"]):
+            item_igsn = get_optional_igsn(item)
+            for file_obj in gc.listFile(item["_id"]):
+                source_rows.append(
+                    {
+                        "file_id": str(file_obj["_id"]),
+                        "file_name": str(file_obj.get("name", "")),
+                        "igsn": item_igsn,
+                    }
+                )
 
-            scans[scan_num].setdefault("source_files", []).append(file_name)
-            scans[scan_num].setdefault("source_file_ids", []).append(str(file_obj["_id"]))
+    for source in source_rows:
+        file_name = source["file_name"]
+        h5_match = H5_SCAN_PATTERN.match(file_name)
+        xrf_match = XRF_SCAN_PATTERN.match(file_name)
+        if not h5_match and not xrf_match:
+            continue
 
-    context.log.info(f"Loaded {len(scans)} scan(s) from experiment {experiment_folder.get('name', experiment_folder_id)}")
+        scan_num = int((h5_match or xrf_match).group(1))
+        scans.setdefault(scan_num, {})
+
+        item_igsn = source.get("igsn")
+        if item_igsn:
+            existing_igsn = scans[scan_num].get("igsn")
+            if existing_igsn and existing_igsn != item_igsn:
+                raise ValueError(f"Conflicting IGSN values found for scan {scan_num}: {existing_igsn} vs {item_igsn}")
+            scans[scan_num]["igsn"] = item_igsn
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = os.path.join(tmpdir, file_name)
+            gc.downloadFile(source["file_id"], local_path)
+
+            if h5_match:
+                with h5py.File(local_path, "r") as h5f:
+                    scans[scan_num]["xrd"] = h5f["entry/data/data"][:][0]
+            else:
+                with open(local_path, "r", encoding="utf-8", errors="replace") as xrf_file:
+                    scans[scan_num]["xrf"] = xrf_file.read()
+
+        scans[scan_num].setdefault("source_files", []).append(file_name)
+        scans[scan_num].setdefault("source_file_ids", []).append(source["file_id"])
+
+    if not raw_folder_id:
+        raw_folder = find_child_folder_by_name(gc, experiment_folder_id, "raw")
+        if raw_folder:
+            raw_folder_id = str(raw_folder["_id"])
+        else:
+            raw_folder_id = ""
+
+    context.log.info(
+        "Loaded %s scan(s) from experiment %s using backend=%s",
+        len(scans),
+        experiment_folder.get("name", experiment_folder_id),
+        backend,
+    )
     return {
         "experiment_folder_id": experiment_folder_id,
         "experiment_name": str(experiment_folder.get("name", experiment_folder_id)),
-        "raw_folder_id": str(raw_folder["_id"]),
+        "raw_folder_id": raw_folder_id,
         "scans": scans,
     }
 

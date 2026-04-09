@@ -5,8 +5,9 @@ from MaximaDagster.utils.discovery import (
 
 
 class _FakeDatafilesClient:
-    def __init__(self, rows_by_type):
+    def __init__(self, rows_by_type, files_by_item=None):
         self.rows_by_type = rows_by_type
+        self.files_by_item = files_by_item or {}
 
     def get(self, route, parameters=None):
         assert route == "aimdl/datafiles"
@@ -15,6 +16,9 @@ class _FakeDatafilesClient:
         offset = int((parameters or {}).get("offset", 0))
         rows = list(self.rows_by_type.get(data_type, []))
         return rows[offset : offset + limit]
+
+    def listFile(self, item_id):
+        return list(self.files_by_item.get(item_id, []))
 
 
 def test_list_experiment_candidates_deduplicates_by_experiment_id(monkeypatch):
@@ -73,11 +77,15 @@ def test_latest_calibrant_candidate_uses_created_then_file_id(monkeypatch):
                     "created": "2026-01-10T00:00:00.000+00:00",
                 },
             ]
-        }
+        },
+        files_by_item={
+            "cal_2": [{"_id": "cal_file_2", "name": "xrd_calibrant_data_000002.h5"}],
+            "cal_3": [{"_id": "cal_file_3", "name": "xrd_calibrant_data_000003.h5"}],
+        },
     )
 
     latest = latest_calibrant_candidate_from_datafiles(gc)
 
     assert latest is not None
-    assert latest.file_id == "cal_3"
+    assert latest.file_id == "cal_file_3"
     assert latest.item_id == "cal_3"

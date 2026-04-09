@@ -1,7 +1,8 @@
 import os
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
+
 from dagster import Out, op
 
 
@@ -22,6 +23,17 @@ class CalibrantCandidate:
     item_id: str | None
     file_name: str
     created: str
+
+
+@dataclass(frozen=True)
+class XrdRawScanCandidate:
+    file_id: str
+    item_id: str
+    file_name: str
+    created: str
+    raw_folder_id: str
+    experiment_folder_id: str
+    igsn: str | None
 
 
 class DatafilesDiscoveryError(RuntimeError):
@@ -175,6 +187,17 @@ def _extract_experiment_name(row: dict[str, Any]) -> str | None:
     return _as_str(value)
 
 
+def _extract_meta(row: dict[str, Any]) -> dict[str, Any]:
+    meta = row.get("meta")
+    if isinstance(meta, dict):
+        return meta
+    return {}
+
+
+def _extract_igsn(row: dict[str, Any]) -> str | None:
+    return _as_str(_extract_meta(row).get("igsn"))
+
+
 def _get_folder_by_id_cached(gc: Any, folder_id: str, cache: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
     if folder_id in cache:
         return cache[folder_id]
@@ -240,9 +263,84 @@ def _iter_datafiles_rows(
 def _sort_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         rows,
-        key=lambda row: (_extract_created(row), _extract_file_id(row) or ""),
+        key=lambda row: (_extract_created(row), _extract_item_id(row) or ""),
         reverse=True,
     )
+
+
+def _get_item_files_cached(
+    gc: Any,
+    item_id: str,
+    cache: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    if item_id in cache:
+        return cache[item_id]
+
+    item_files = [file_obj for file_obj in gc.listFile(item_id) if str(file_obj.get("_id") or "").strip()]
+    cache[item_id] = item_files
+    return item_files
+
+
+def _select_item_file(
+    item_files: list[dict[str, Any]],
+    preferred_name: str | None,
+    predicate: Callable[[str], bool] | None = None,
+) -> tuple[str, str] | None:
+    if not item_files:
+        return None
+
+    selected_files = item_files
+    if predicate is not None:
+        matching = [file_obj for file_obj in item_files if predicate(str(file_obj.get("name") or ""))]
+        if matching:
+            selected_files = matching
+
+    preferred = _as_str(preferred_name)
+    if preferred:
+        for file_obj in selected_files:
+            file_name = str(file_obj.get("name") or "")
+            if file_name == preferred:
+                return str(file_obj["_id"]), file_name
+
+    first_file = selected_files[0]
+    return str(first_file["_id"]), str(first_file.get("name") or "")
+
+
+def _resolve_row_file(
+    gc: Any,
+    row: dict[str, Any],
+    item_file_cache: dict[str, list[dict[str, Any]]],
+    predicate: Callable[[str], bool] | None = None,
+) -> tuple[str, str, str] | None:
+    item_id = _extract_item_id(row)
+    if not item_id:
+        return None
+
+    item_files = _get_item_files_cached(gc, item_id, item_file_cache)
+    selected = _select_item_file(item_files, preferred_name=_extract_file_name(row), predicate=predicate)
+    if selected is None:
+        return None
+
+    file_id, file_name = selected
+    return file_id, item_id, file_name
+
+
+def _resolve_experiment_folder_id(
+    gc: Any,
+    row: dict[str, Any],
+    folder_cache: dict[str, dict[str, Any]],
+) -> str | None:
+    experiment_folder_id = _extract_experiment_folder_id(row)
+    raw_folder_id = _extract_raw_folder_id(row)
+
+    if not experiment_folder_id and raw_folder_id:
+        parent_folder = _get_folder_by_id_cached(gc, raw_folder_id, folder_cache)
+        if parent_folder:
+            experiment_folder_id = _as_str(parent_folder.get("parentId"))
+
+    if not experiment_folder_id:
+        return raw_folder_id
+    return experiment_folder_id
 
 
 def list_experiment_candidates_from_datafiles(gc: Any) -> list[ExperimentCandidate]:
@@ -260,20 +358,13 @@ def list_experiment_candidates_from_datafiles(gc: Any) -> list[ExperimentCandida
 
     for row in rows:
         raw_folder_id = _extract_raw_folder_id(row)
-        file_id = _extract_file_id(row)
-        if not raw_folder_id or not file_id:
+        item_id = _extract_item_id(row)
+        if not raw_folder_id or not item_id:
             continue
 
-        experiment_folder_id = _extract_experiment_folder_id(row)
+        experiment_folder_id = _resolve_experiment_folder_id(gc, row, folder_cache)
         if not experiment_folder_id:
-            parent_folder = _get_folder_by_id_cached(gc, raw_folder_id, folder_cache)
-            if parent_folder:
-                experiment_folder_id = parent_folder.get("parentId")
-                if experiment_folder_id:
-                    experiment_folder_id = str(experiment_folder_id)
-
-        if not experiment_folder_id:
-            experiment_folder_id = raw_folder_id
+            continue
 
         experiment_folder_name = _extract_experiment_name(row)
         if not experiment_folder_name and experiment_folder_id != raw_folder_id:
@@ -306,19 +397,73 @@ def latest_calibrant_candidate_from_datafiles(gc: Any) -> CalibrantCandidate | N
     if not rows:
         return None
 
+    item_file_cache: dict[str, list[dict[str, Any]]] = {}
+
     for row in _sort_rows(rows):
-        file_id = _extract_file_id(row)
-        file_name = _extract_file_name(row)
-        if not file_id or not file_name:
+        resolved = _resolve_row_file(
+            gc,
+            row,
+            item_file_cache=item_file_cache,
+            predicate=lambda name: name.lower().endswith(".h5"),
+        )
+        if resolved is None:
             continue
+        file_id, item_id, file_name = resolved
         return CalibrantCandidate(
             file_id=file_id,
-            item_id=_extract_item_id(row),
+            item_id=item_id,
             file_name=file_name,
             created=_extract_created(row),
         )
 
     return None
+
+
+def list_xrd_scan_candidates_from_datafiles(
+    gc: Any,
+    experiment_folder_id: str,
+) -> list[XrdRawScanCandidate]:
+    rows = _iter_datafiles_rows(
+        gc,
+        data_type="xrd_raw",
+        limit=get_datafiles_limit(),
+        max_pages=get_datafiles_max_pages(),
+        max_rows=get_datafiles_max_rows(),
+    )
+    if not rows:
+        return []
+
+    folder_cache: dict[str, dict[str, Any]] = {}
+    item_file_cache: dict[str, list[dict[str, Any]]] = {}
+    candidates: list[XrdRawScanCandidate] = []
+
+    for row in _sort_rows(rows):
+        row_experiment_folder_id = _resolve_experiment_folder_id(gc, row, folder_cache)
+        if row_experiment_folder_id != experiment_folder_id:
+            continue
+
+        raw_folder_id = _extract_raw_folder_id(row)
+        if not raw_folder_id:
+            continue
+
+        resolved = _resolve_row_file(gc, row, item_file_cache=item_file_cache)
+        if resolved is None:
+            continue
+
+        file_id, item_id, file_name = resolved
+        candidates.append(
+            XrdRawScanCandidate(
+                file_id=file_id,
+                item_id=item_id,
+                file_name=file_name,
+                created=_extract_created(row),
+                raw_folder_id=raw_folder_id,
+                experiment_folder_id=row_experiment_folder_id,
+                igsn=_extract_igsn(row),
+            )
+        )
+
+    return candidates
 
 
 def call_with_retries(fn, *args, **kwargs):
