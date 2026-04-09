@@ -15,6 +15,8 @@ class ExperimentCandidate:
     experiment_folder_id: str
     experiment_folder_name: str
     raw_folder_id: str | None
+    created: str = ""
+    file_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -380,6 +382,8 @@ def list_experiment_candidates_from_datafiles(gc: Any) -> list[ExperimentCandida
                 experiment_folder_id=experiment_folder_id,
                 experiment_folder_name=str(experiment_folder_name),
                 raw_folder_id=raw_folder_id,
+                created=_extract_created(row),
+                file_id=str(item_id),
             ),
         )
 
