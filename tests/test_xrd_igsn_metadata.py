@@ -198,3 +198,88 @@ def test_publish_xrd_results_adds_igsn_metadata_to_csv_items(tmp_path, monkeypat
 	assert "xrd_run_manifest.json" not in gc._items
 	assert "scan_point_0_lattice_parameters.csv" not in gc._items
 	assert "scan_point_1_lattice_parameters.csv" not in gc._items
+
+
+class _FakeDatafilesXrdGirderClient:
+	def __init__(self, h5_path: Path, xrf_path: Path):
+		self._sources = {
+			"file_h5": h5_path,
+			"file_xrf": xrf_path,
+		}
+
+	def getFolder(self, folder_id):
+		if folder_id == "exp_01":
+			return {"_id": folder_id, "name": "exp_name"}
+		if folder_id == "raw_01":
+			return {"_id": "raw_01", "parentId": "exp_01", "name": "raw"}
+		raise AssertionError(folder_id)
+
+	def get(self, route, parameters=None):
+		if route != "aimdl/datafiles":
+			return []
+
+		if (parameters or {}).get("dataType") != "xrd_raw":
+			return []
+
+		rows = [
+			{
+				"_id": "item_h5",
+				"name": "scan_point_0_data_00001.h5",
+				"created": "2026-03-12T10:00:00.000+00:00",
+				"folderId": "raw_01",
+				"experimentFolderId": "exp_01",
+				"meta": {"data_type": "xrd_raw", "igsn": "IGSN-123"},
+			},
+			{
+				"_id": "item_xrf",
+				"name": "scan_point_0.xrf",
+				"created": "2026-03-12T10:00:00.000+00:00",
+				"folderId": "raw_01",
+				"experimentFolderId": "exp_01",
+				"meta": {"data_type": "xrd_raw", "igsn": "IGSN-123"},
+			},
+			{
+				"_id": "item_other_exp",
+				"name": "scan_point_99_data_00001.h5",
+				"created": "2026-03-12T10:00:00.000+00:00",
+				"folderId": "raw_other",
+				"experimentFolderId": "exp_other",
+				"meta": {"data_type": "xrd_raw", "igsn": "OTHER-IGSN"},
+			},
+		]
+		limit = int((parameters or {}).get("limit", len(rows)))
+		offset = int((parameters or {}).get("offset", 0))
+		return rows[offset : offset + limit]
+
+	def listFile(self, item_id):
+		if item_id == "item_h5":
+			return [{"_id": "file_h5", "name": "scan_point_0_data_00001.h5"}]
+		if item_id == "item_xrf":
+			return [{"_id": "file_xrf", "name": "scan_point_0.xrf"}]
+		if item_id == "item_other_exp":
+			return [{"_id": "file_other", "name": "scan_point_99_data_00001.h5"}]
+		return []
+
+	def downloadFile(self, file_id, local_path):
+		Path(local_path).write_bytes(self._sources[file_id].read_bytes())
+
+
+def test_xrdxrf_scans_datafiles_backend_filters_and_collects_sources(tmp_path, monkeypatch):
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("DISCOVERY_BACKEND", "datafiles")
+
+	h5_path = tmp_path / "source.h5"
+	xrf_path = tmp_path / "source.xrf"
+	_write_test_h5(h5_path)
+	xrf_path.write_text("xrf-data", encoding="utf-8")
+
+	gc = _FakeDatafilesXrdGirderClient(h5_path=h5_path, xrf_path=xrf_path)
+	context = build_asset_context(resources={"GirderClient": gc}, partition_key="exp_01")
+
+	result = assets.xrdxrf_scans(context)
+
+	assert result["scans"][0]["igsn"] == "IGSN-123"
+	assert set(result["scans"][0]["source_files"]) == {"scan_point_0_data_00001.h5", "scan_point_0.xrf"}
+	assert set(result["scans"][0]["source_file_ids"]) == {"file_h5", "file_xrf"}
+	assert "xrd" in result["scans"][0]
+	assert "xrf" in result["scans"][0]

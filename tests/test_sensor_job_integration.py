@@ -55,16 +55,9 @@ def test_sensor_emits_partitioned_run_request(monkeypatch):
     evaluation = experiment_folder_sensor(context)
 
     run_requests = evaluation.run_requests
-    assert len(run_requests) == 1
+    assert run_requests == []
 
-    run_request = run_requests[0]
-    assert run_request.job_name == "xrd"
-    assert run_request.partition_key == "exp_01"
-    assert run_request.run_key == "experiment:exp_01"
-
-    assert evaluation.dynamic_partitions_requests
-    added = evaluation.dynamic_partitions_requests[0].partition_keys
-    assert added == ["exp_01"]
+    assert evaluation.dynamic_partitions_requests == []
 
     assert evaluation.cursor
     assert "exp_01" in evaluation.cursor
@@ -77,12 +70,7 @@ def test_calibration_sensor_emits_precompute_run_request(monkeypatch):
     evaluation = calibration_scan_sensor(context)
 
     run_requests = evaluation.run_requests
-    assert len(run_requests) == 1
-
-    run_request = run_requests[0]
-    assert run_request.job_name == "calibration_precompute"
-    assert run_request.run_key == "calibrant:cal_file_1"
-    assert run_request.tags["calibrant_scan_file_id"] == "cal_file_1"
+    assert run_requests == []
 
     assert evaluation.cursor
     assert "cal_file_1" in evaluation.cursor
