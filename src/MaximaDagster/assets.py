@@ -7,7 +7,6 @@ from typing import Any
 import h5py
 from dagster import (
     AssetExecutionContext,
-    Config,
     DagsterRunStatus,
     RetryRequested,
     RunsFilter,
@@ -25,13 +24,8 @@ from .utils.discovery import (
     should_allow_discovery_fallback,
 )
 from .utils.girder_helpers import find_child_folder_by_name, get_optional_igsn
-from .modules import (
-    AzimuthalIntegrator,
-    ConverterXRFtoMCA,
-    MCAtoFit,
-    concentrations as concentrations_module,
-)
-from .utils.patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN, XRF_SCAN_PATTERN
+from .modules import AzimuthalIntegrator
+from .utils.patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN
 from .utils.poni_manager import CalibrationCache, load_geometry_from_poni
 from .utils.results_publisher import (
     build_calibrant_metadata,
@@ -384,11 +378,10 @@ def xrdxrf_scans(context: AssetExecutionContext):
     for source in source_rows:
         file_name = source["file_name"]
         h5_match = H5_SCAN_PATTERN.match(file_name)
-        xrf_match = XRF_SCAN_PATTERN.match(file_name)
-        if not h5_match and not xrf_match:
+        if not h5_match:
             continue
 
-        scan_num = int((h5_match or xrf_match).group(1))
+        scan_num = int(h5_match.group(1))
         scans.setdefault(scan_num, {})
 
         item_igsn = source.get("igsn")
@@ -402,12 +395,8 @@ def xrdxrf_scans(context: AssetExecutionContext):
             local_path = os.path.join(tmpdir, file_name)
             gc.downloadFile(source["file_id"], local_path)
 
-            if h5_match:
-                with h5py.File(local_path, "r") as h5f:
-                    scans[scan_num]["xrd"] = h5f["entry/data/data"][:][0]
-            else:
-                with open(local_path, "r", encoding="utf-8", errors="replace") as xrf_file:
-                    scans[scan_num]["xrf"] = xrf_file.read()
+            with h5py.File(local_path, "r") as h5f:
+                scans[scan_num]["xrd"] = h5f["entry/data/data"][:][0]
 
         scans[scan_num].setdefault("source_files", []).append(file_name)
         scans[scan_num].setdefault("source_file_ids", []).append(source["file_id"])
@@ -478,33 +467,6 @@ def calibration_model(context: AssetExecutionContext):
             "version": version,
         },
     }
-
-
-class PymcaConfig(Config):
-    file_id: str
-
-
-@asset(required_resource_keys={"GirderClient"})
-def pymca_config(context: AssetExecutionContext, config: PymcaConfig):
-    gc = context.resources.GirderClient
-
-    file_info = gc.getFile(config.file_id)
-    file_name = file_info["name"]
-
-    if not file_name.lower().endswith(".cfg"):
-        raise ValueError(f"Expected a .cfg file, got {file_name}")
-
-    local_dir = Path("data") / "configs"
-    local_dir.mkdir(parents=True, exist_ok=True)
-    local_path = local_dir / file_name
-
-    if not local_path.exists():
-        gc.downloadFile(config.file_id, str(local_path))
-        context.log.info(f"Downloaded PyMCA config to {local_path}")
-    else:
-        context.log.info(f"Using cached PyMCA config at {local_path}")
-
-    return str(local_path)
 
 
 @asset(required_resource_keys={"GirderClient"})
@@ -625,20 +587,3 @@ def publish_xrd_results(
         "experiment_folder_id": experiment_folder_id,
         "uploaded_files": sorted(uploaded_files),
     }
-
-
-@asset
-def mca(xrdxrf_scans):
-    scan_payload = xrdxrf_scans.get("scans", xrdxrf_scans)
-    xrf_scans = {scan_id: scan["xrf"] for scan_id, scan in scan_payload.items() if "xrf" in scan}
-    return ConverterXRFtoMCA.convert_xrf_to_mca(xrf_scans)
-
-
-@asset
-def xrf_fit(mca, pymca_config):
-    return MCAtoFit.run_pymca_batch(mca, pymca_config)
-
-
-@asset
-def concentrations(xrf_fit):
-    return concentrations_module.process_pymca_directory(xrf_fit)
