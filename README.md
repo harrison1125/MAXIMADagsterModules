@@ -141,17 +141,6 @@ docker compose down
 - `dagster_home/` contains local Dagster state
 - The active runtime publication path currently uploads PONI + azimuthal CSV artifacts.
 
-## Documentation
-
-- Build docs locally from a clean output directory:
-
-```powershell
-Remove-Item -Recurse -Force .\docs\build
-sphinx-build -b html docs/source docs/build/html
-```
-
-- GitHub Pages deployment publishes from `docs/build/html` via workflow.
-
 ## Troubleshooting
 
 - No sensor runs: verify all required `GIRDER_*` variables are set and valid.
