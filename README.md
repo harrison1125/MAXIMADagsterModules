@@ -1,6 +1,6 @@
 # MAXIMA Dagster Modules
 
-Dagster project for sensor-driven XRD/XRF experiment processing against Girder-backed data from MAXIMA.
+Dagster project for sensor-driven XRD experiment processing against Girder-backed data from MAXIMA.
 It detects new experiments, materializes partitioned assets, caches model/calibration artifacts,
 and publishes processed XRD outputs back to Girder.
 
@@ -10,40 +10,43 @@ and publishes processed XRD outputs back to Girder.
 
 - Watches a Girder root folder for new experiment folders that contain `raw/scan_point_*_data_*.h5` files.
 - Triggers one Dagster run per new experiment using dynamic partitions.
-- Builds an XRD pipeline that includes scan loading, calibration model use, PONI generation, azimuthal integration, and lattice parameter extraction.
-- Publishes result artifacts (including run manifest + CSV outputs) back to the experiment folder in Girder.
+- Builds an XRD pipeline that includes scan loading, calibration model use, PONI generation, and azimuthal integration.
+- Publishes XRD result artifacts and metadata back to the experiment folder in Girder.
 - Caches heavy artifacts locally to reduce repeated compute:
   - model files in `data/models`
   - PONI files and index metadata in `data/calibrations`
 
 ## Current Pipeline Scope
 
-- XRD sensor-driven flow is operational.
-- XRF-related assets exist in the codebase but are not part of the primary sensor-driven `xrd_test_job` path yet.
+- XRD sensor-driven flow is operational and is the project scope.
+- XRF processing is out of scope for this project.
 
 ## Core Components
 
-- `experiment_folder_sensor`: detects new experiments and launches `xrd_test_job` with partition key = Girder experiment folder id.
-- `calibration_scan_sensor`: detects latest calibrant scan updates and launches `calibration_precompute_job`.
-- `xrd_test_job`: materializes XRD assets for a partitioned experiment.
-- `calibration_precompute_job`: precomputes and refreshes calibration prerequisites.
+- `experiment_folder_sensor`: detects new experiments and launches `xrd` with partition key = Girder experiment folder id.
+- `calibration_scan_sensor`: detects latest calibrant scan updates and launches `calibration_precompute`.
+- `xrd`: materializes XRD assets for a partitioned experiment.
+- `calibration_precompute`: precomputes and refreshes calibration prerequisites.
+- `discovery_smoke`: diagnostic job for discovery backend checks.
 
 ## Repository Layout
 
 - `src/MaximaDagster/`: Python package for the Dagster project.
 - `src/MaximaDagster/definitions.py`: Dagster definitions and job wiring.
-- `src/MaximaDagster/assets.py`, `sensors.py`, `resources.py`, `io_manager.py`: core Dagster configuration and orchestration.
-- `src/MaximaDagster/modules/`: XRD/XRF processing modules and pipeline steps.
+- `src/MaximaDagster/assets.py`, `sensors.py`, `resources.py`: core Dagster configuration and orchestration.
+- `src/MaximaDagster/modules/`: XRD processing modules and pipeline steps.
 - `src/MaximaDagster/utils/`: shared Girder, pattern, PONI, and results publishing helpers.
 - `src/MaximaDagster/defs/`: package namespace for Dagster definition exports.
 - `tests/`: pytest coverage for assets, modules, and sensor/integration behavior.
 - `data/`: local cache for models and calibration outputs.
 - `dagster_home/`: Dagster instance configuration and run/storage artifacts.
+- `docs/source/`: Sphinx source documentation.
+- `docs/build/`: generated HTML docs for GitHub Pages deployment.
 - `docker-compose.yml` and `Dockerfile`: containerized runtime.
 
 ## Prerequisites
 
-- Python `>=3.10,<3.15` (Python 3.11 recommended)
+- Python `>=3.11,<3.15`
 - Access to the target Girder instance and folder IDs
 - Optional: Docker + Docker Compose for containerized deployment
 
@@ -72,7 +75,7 @@ conda activate dagster
 
 ```powershell
 pip install -e .
-pip install dagster-webserver dagster-dg-cli pytest
+pip install dagster-webserver dagster-dg-cli pytest sphinx sphinx-rtd-theme
 ```
 
 ### 3. Configure environment variables
@@ -108,23 +111,23 @@ Enable the sensors in the "Automation" tab to start monitoring for new experimen
 Copy-Item .env.example .env
 ```
 
-2. Build and start services:
+1. Build and start services:
 
 ```powershell
 docker compose up --build -d
 ```
 
-3. View the Dagster UI:
+2. View the Dagster UI:
 
 - `http://localhost:3000`
 
-4. Tail logs for sensors and webserver:
+3. Tail logs for sensors and webserver:
 
 ```powershell
 docker compose logs -f dagster-daemon dagster-webserver
 ```
 
-5. Stop services:
+4. Stop services:
 
 ```powershell
 docker compose down
@@ -136,9 +139,21 @@ docker compose down
 - Experiment partition keys are Girder experiment folder IDs
 - Caching reduces repeated downloads/recalibration but can be invalidated by deleting local cache files under `data/models` and `data/calibrations`.
 - `dagster_home/` contains local Dagster state
+- The active runtime publication path currently uploads PONI + azimuthal CSV artifacts.
+
+## Documentation
+
+- Build docs locally from a clean output directory:
+
+```powershell
+Remove-Item -Recurse -Force .\docs\build
+sphinx-build -b html docs/source docs/build/html
+```
+
+- GitHub Pages deployment publishes from `docs/build/html` via workflow.
 
 ## Troubleshooting
 
 - No sensor runs: verify all required `GIRDER_*` variables are set and valid.
 - Runs fail to load assets: confirm `workspace.yaml` resolves `MaximaDagster.definitions` in your environment.
-- Calibration not refreshing: ensure new calibrant scans match the expected filename pattern `xrd_calibrant_data_<id>.h5` (based on available examples, probably needs to adjusted)
+- Calibration not refreshing: ensure new calibrant scans match the expected filename pattern `xrd_calibrant_data_<id>.h5`.

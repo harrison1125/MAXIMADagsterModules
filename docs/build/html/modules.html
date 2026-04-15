@@ -6,19 +6,22 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MAXIMADag &mdash; MAXIMA_DAG 1.0.0 documentation</title>
+  <title>API Reference &mdash; MAXIMA Dagster Modules 2026.4.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
+    <link rel="canonical" href="https://gmurra12.github.io/MAXIMADagsterModules/modules.html" />
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=8d563738"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/documentation_options.js?v=d4e7f533"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
-    <link rel="search" title="Search" href="search.html" /> 
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Runtime Orchestration" href="api/runtime_orchestration.html" />
+    <link rel="prev" title="Troubleshooting" href="troubleshooting.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -30,7 +33,7 @@
           
           
           <a href="index.html" class="icon icon-home">
-            MAXIMA_DAG
+            MAXIMA Dagster Modules
           </a>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
@@ -40,18 +43,30 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <!-- Local TOC -->
-              <div class="local-toc"><ul>
-<li><a class="reference internal" href="#">MAXIMADag</a></li>
+              <p class="caption" role="heading"><span class="caption-text">Project Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dagster_runtime.html">Dagster Runtime</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="discovery_backend.html">Discovery Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_products.html">Data Products</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_orchestration.html">Runtime Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/processing_modules.html">Processing Modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_utilities.html">Runtime Utilities</a></li>
 </ul>
-</div>
+</li>
+</ul>
+
         </div>
       </div>
     </nav>
 
     <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">MAXIMA_DAG</a>
+          <a href="index.html">MAXIMA Dagster Modules</a>
       </nav>
 
       <div class="wy-nav-content">
@@ -59,7 +74,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">MAXIMADag</li>
+      <li class="breadcrumb-item active">API Reference</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/modules.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -69,27 +84,31 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="maximadag">
-<h1>MAXIMADag<a class="headerlink" href="#maximadag" title="Link to this heading"></a></h1>
+  <section id="api-reference">
+<h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading"></a></h1>
+<p>The API reference focuses on runtime-critical modules used by the production
+Dagster pipeline.</p>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="AzimuthalIntegrator.html">AzimuthalIntegrator module</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="AzimuthalIntegrator.html#AzimuthalIntegrator.azimuthally_integrate_files"><code class="docutils literal notranslate"><span class="pre">azimuthally_integrate_files()</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/runtime_orchestration.html">Runtime Orchestration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_orchestration.html#module-MaximaDagster.definitions">Definitions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_orchestration.html#module-MaximaDagster.assets">Assets</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_orchestration.html#module-MaximaDagster.sensors">Sensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_orchestration.html#module-MaximaDagster.resources">Resources</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="ConverterXRFtoMCA.html">ConverterXRFtoMCA module</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="ConverterXRFtoMCA.html#ConverterXRFtoMCA.convert_xrf_to_mca"><code class="docutils literal notranslate"><span class="pre">convert_xrf_to_mca()</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/processing_modules.html">Processing Modules</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/processing_modules.html#module-MaximaDagster.modules.AzimuthalIntegrator">Azimuthal Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/processing_modules.html#module-MaximaDagster.modules.LatticeParameters">Lattice Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/processing_modules.html#module-MaximaDagster.modules.calibrate">Calibration</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="Inputs.html">Inputs module</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="Inputs.html#Inputs.root_dir"><code class="docutils literal notranslate"><span class="pre">root_dir</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="Inputs.html#Inputs.poni_file"><code class="docutils literal notranslate"><span class="pre">poni_file</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="Inputs.html#Inputs.config_path"><code class="docutils literal notranslate"><span class="pre">config_path</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="MCAtoFit.html">MCAtoFit module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="concentrations.html">concentrations module</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="concentrations.html#concentrations.calculate_atomic_percent_ti"><code class="docutils literal notranslate"><span class="pre">calculate_atomic_percent_ti()</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/runtime_utilities.html">Runtime Utilities</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_utilities.html#module-MaximaDagster.utils.discovery">Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_utilities.html#module-MaximaDagster.utils.girder_helpers">Girder Helpers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_utilities.html#module-MaximaDagster.utils.patterns">Patterns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_utilities.html#module-MaximaDagster.utils.poni_manager">PONI Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_utilities.html#module-MaximaDagster.utils.results_publisher">Results Publisher</a></li>
 </ul>
 </li>
 </ul>
@@ -99,7 +118,10 @@
 
            </div>
           </div>
-          <footer>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="troubleshooting.html" class="btn btn-neutral float-left" title="Troubleshooting" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api/runtime_orchestration.html" class="btn btn-neutral float-right" title="Runtime Orchestration" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
 
   <hr/>
 
