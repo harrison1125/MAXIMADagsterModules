@@ -1,11 +1,12 @@
-MAXIMADag
-=========
+API Reference
+=============
+
+The API reference focuses on runtime-critical modules used by the production
+Dagster pipeline.
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
 
-   AzimuthalIntegrator
-   ConverterXRFtoMCA
-   Inputs
-   MCAtoFit
-   concentrations
+   api/runtime_orchestration
+   api/processing_modules
+   api/runtime_utilities

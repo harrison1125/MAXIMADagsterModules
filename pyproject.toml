@@ -20,11 +20,20 @@ dependencies = [
     "PyMca5==5.9.5",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "dagster-webserver",
+    "dagster-dg-cli",
+    "pytest",
+    "pytest-cov",
+]
+
 [dependency-groups]
 dev = [
     "dagster-webserver",
     "dagster-dg-cli",
     "pytest",
+    "pytest-cov",
 ]
 
 [build-system]

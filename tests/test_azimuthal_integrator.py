@@ -73,3 +73,39 @@ def test_integrate_directory_uses_run_integration(tmp_path: Path, monkeypatch):
     assert set(results.keys()) == {"a", "b"}
     assert Path(results["a"]["dat"]).exists()
     assert Path(results["b"]["png"]).exists()
+
+
+@pytest.mark.parametrize(
+    "bad_image",
+    [
+        np.ones((2, 2, 2), dtype=np.float32),
+        np.array([], dtype=np.float32),
+        np.array([["a", "b"], ["c", "d"]], dtype=object),
+    ],
+)
+def test_integrate_pattern_validates_bad_input_shapes_and_types(bad_image: np.ndarray) -> None:
+    fake_ai = _FakeAI()
+
+    with pytest.raises(ValueError):
+        az.integrate_pattern(image=bad_image, ai=fake_ai, npt=5)
+
+
+def test_integrate_pattern_retries_without_unit_when_ai_rejects_keyword() -> None:
+    class _UnitRejectingAI:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def integrate1d(self, image, **kwargs):
+            self.calls += 1
+            if "unit" in kwargs:
+                raise TypeError("unexpected keyword argument: unit")
+            q = np.linspace(10.0, 20.0, int(kwargs["npt"]), dtype=float)
+            i = np.linspace(1.0, 2.0, int(kwargs["npt"]), dtype=float)
+            return q, i
+
+    ai = _UnitRejectingAI()
+    result = az.integrate_pattern(image=np.ones((4, 4), dtype=np.float32), ai=ai, npt=4)
+
+    assert ai.calls == 2
+    assert list(result.columns) == [az.Q_COLUMN, az.INTENSITY_COLUMN]
+    assert len(result) == 4

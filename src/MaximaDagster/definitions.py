@@ -1,4 +1,4 @@
-from dagster import Definitions, define_asset_job, fs_io_manager, In, Out, Nothing, job, op
+from dagster import Definitions, define_asset_job, fs_io_manager, job
 from .resources import GirderClient
 from .assets import *
 from .sensors import calibration_scan_sensor, experiment_folder_sensor, experiment_partitions
@@ -8,16 +8,6 @@ from .utils.discovery import discovery_calibrants_check, discovery_experiments_c
 xrd = define_asset_job(
     name="xrd",
     selection=["xrdxrf_scans", "calibration_model", "poni", "azimuthal_integration", "publish_xrd_results"],
-)
-
-xrf = define_asset_job(
-    name="xrf",
-    selection=["xrdxrf_scans", "pymca_config", "mca", "xrf_fit", "concentrations"],
-)
-
-xrdxrf = define_asset_job(
-    name="xrdxrf",
-    selection=["xrdxrf_scans", "calibration_model", "poni", "azimuthal_integration", "publish_xrd_results", "pymca_config", "mca", "xrf_fit", "concentrations"],
 )
 
 calibration_precompute = define_asset_job(
@@ -32,8 +22,8 @@ def discovery_smoke():
 
 
 defs = Definitions(
-    assets=[xrdxrf_scans, calibration_model, pymca_config, poni, azimuthal_integration, publish_xrd_results, mca, xrf_fit, concentrations],
-    jobs=[xrd, xrf, xrdxrf, calibration_precompute, discovery_smoke],
+    assets=[xrdxrf_scans, calibration_model, poni, azimuthal_integration, publish_xrd_results],
+    jobs=[xrd, calibration_precompute, discovery_smoke],
     sensors=[experiment_folder_sensor, calibration_scan_sensor],
     resources={
         "GirderClient": GirderClient.configured(

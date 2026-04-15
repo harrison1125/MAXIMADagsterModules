@@ -27,7 +27,6 @@ from .utils.patterns import CALIBRANT_SCAN_PATTERN, H5_SCAN_PATTERN
 
 experiment_partitions = DynamicPartitionsDefinition(name="experiments")
 
-# Compatibility shims for internal sensor functions
 _get_child_folders = get_child_folders
 _find_child_folder_by_name = find_child_folder_by_name
 _H5_SCAN_PATTERN = H5_SCAN_PATTERN

@@ -6,19 +6,21 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MAXIMA_DAG documentation &mdash; MAXIMA_DAG 1.0.0 documentation</title>
+  <title>MAXIMA Dagster Modules &mdash; MAXIMA Dagster Modules 2026.4.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
+    <link rel="canonical" href="https://gmurra12.github.io/MAXIMADagsterModules/index.html" />
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=8d563738"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/documentation_options.js?v=d4e7f533"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
-    <link rel="search" title="Search" href="search.html" /> 
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Getting Started" href="getting_started.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -30,7 +32,7 @@
           
           
           <a href="#" class="icon icon-home">
-            MAXIMA_DAG
+            MAXIMA Dagster Modules
           </a>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
@@ -40,18 +42,25 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <!-- Local TOC -->
-              <div class="local-toc"><ul>
-<li><a class="reference internal" href="#">MAXIMA_DAG documentation</a></li>
+              <p class="caption" role="heading"><span class="caption-text">Project Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dagster_runtime.html">Dagster Runtime</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="discovery_backend.html">Discovery Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_products.html">Data Products</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules.html">API Reference</a></li>
 </ul>
-</div>
+
         </div>
       </div>
     </nav>
 
     <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="#">MAXIMA_DAG</a>
+          <a href="#">MAXIMA Dagster Modules</a>
       </nav>
 
       <div class="wy-nav-content">
@@ -59,7 +68,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="#" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">MAXIMA_DAG documentation</li>
+      <li class="breadcrumb-item active">MAXIMA Dagster Modules</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -69,19 +78,74 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="maxima-dag-documentation">
-<h1>MAXIMA_DAG documentation<a class="headerlink" href="#maxima-dag-documentation" title="Link to this heading"></a></h1>
-<p>Add your content using <code class="docutils literal notranslate"><span class="pre">reStructuredText</span></code> syntax. See the
-<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html">reStructuredText</a>
-documentation for details.</p>
+  <section id="maxima-dagster-modules">
+<h1>MAXIMA Dagster Modules<a class="headerlink" href="#maxima-dagster-modules" title="Link to this heading"></a></h1>
+<p>Sensor-driven Dagster project for MAXIMA XRD experiment processing with Girder-backed
+discovery, calibration, integration, and result publication.</p>
 <div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Project Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#prerequisites">Prerequisites</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#install">Install</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#set-environment">Set Environment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#run-locally">Run Locally</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#build-docs">Build Docs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html#scope">Scope</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html#high-level-flow">High-Level Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html#runtime-components">Runtime Components</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dagster_runtime.html">Dagster Runtime</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="dagster_runtime.html#jobs">Jobs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dagster_runtime.html#sensors">Sensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dagster_runtime.html#asset-graph">Asset Graph</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#dagster-home">Dagster Home</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="discovery_backend.html">Discovery Backend</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="discovery_backend.html#backend-modes">Backend Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="discovery_backend.html#fallback-behavior">Fallback Behavior</a></li>
+<li class="toctree-l2"><a class="reference internal" href="discovery_backend.html#runtime-discovery-operations">Runtime Discovery Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="discovery_backend.html#operational-notes">Operational Notes</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="data_products.html">Data Products</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="data_products.html#current-published-artifacts">Current Published Artifacts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="data_products.html#metadata-and-provenance">Metadata and Provenance</a></li>
+<li class="toctree-l2"><a class="reference internal" href="data_products.html#current-non-published-outputs">Current Non-Published Outputs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#no-sensor-runs">No Sensor Runs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#asset-import-or-load-errors">Asset Import or Load Errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#calibration-not-refreshing">Calibration Not Refreshing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#github-pages-404">GitHub Pages 404</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_orchestration.html">Runtime Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/processing_modules.html">Processing Modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/runtime_utilities.html">Runtime Utilities</a></li>
+</ul>
+</li>
+</ul>
 </div>
 </section>
 
 
            </div>
           </div>
-          <footer>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="getting_started.html" class="btn btn-neutral float-right" title="Getting Started" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
 
   <hr/>
 
