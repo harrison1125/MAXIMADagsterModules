@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import h5py
@@ -14,11 +15,9 @@ from dagster import (
 )
 
 from .utils.discovery import (
-    DISCOVERY_BACKEND_DATAFILES,
     call_with_retries,
-    get_discovery_backend,
-    latest_calibrant_candidate_from_datafiles,
-    list_experiment_candidates_from_datafiles,
+    list_partition_details_from_aimdl,
+    list_partitions_from_aimdl,
     should_allow_discovery_fallback,
 )
 from .utils.girder_helpers import find_child_folder_by_name, get_child_folders
@@ -66,58 +65,92 @@ def _parse_cursor_payload(cursor: str | None) -> dict[str, Any]:
     return payload
 
 
-def _is_newer_created_file_id(
-    created: str,
-    file_id: str,
-    cursor_created: str,
-    cursor_file_id: str,
-) -> bool:
-    if not cursor_created and not cursor_file_id:
-        return True
-    if not cursor_created:
-        return str(file_id) != str(cursor_file_id)
-    candidate_key = (str(created), str(file_id))
-    cursor_key = (str(cursor_created), str(cursor_file_id))
-    return candidate_key > cursor_key
+def _default_since() -> str:
+    return "1970-01-01T00:00:00.000000+00:00"
 
 
-def _serialize_experiment_cursor(
-    seen_experiment_folder_ids: set[str],
-    last_created: str,
-    last_file_id: str,
+def _next_since() -> str:
+    return (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+
+def _parse_checksum_map(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    checksums: dict[str, str] = {}
+    for key, checksum in value.items():
+        partition_key = str(key or "").strip()
+        checksum_text = str(checksum or "").strip()
+        if not partition_key or not checksum_text:
+            continue
+        checksums[partition_key] = checksum_text
+    return checksums
+
+
+def _serialize_experiment_cursor(since: str, checksums_by_partition: dict[str, str]) -> str:
+    return json.dumps(
+        {
+            "since": since,
+            "checksums_by_partition": dict(sorted(checksums_by_partition.items())),
+        }
+    )
+
+
+def _parse_experiment_cursor(cursor: str | None) -> tuple[str, dict[str, str]]:
+    payload = _parse_cursor_payload(cursor)
+    since = str(payload.get("since") or "")
+    checksums_by_partition = _parse_checksum_map(payload.get("checksums_by_partition"))
+
+    # backward compatibility with prior folder-id cursor payloads
+    if not checksums_by_partition:
+        seen = payload.get("seen_experiment_folder_ids", [])
+        if isinstance(seen, list):
+            checksums_by_partition = {str(folder_id): "" for folder_id in seen if str(folder_id).strip()}
+
+    return since, checksums_by_partition
+
+
+def _serialize_calibrant_cursor(
+    since: str,
+    checksums_by_partition: dict[str, str],
+    latest_calibrant_file_id_by_partition: dict[str, str],
 ) -> str:
     return json.dumps(
         {
-            "seen_experiment_folder_ids": sorted(seen_experiment_folder_ids),
-            "last_created": last_created,
-            "last_file_id": last_file_id,
+            "since": since,
+            "checksums_by_partition": dict(sorted(checksums_by_partition.items())),
+            "latest_calibrant_file_id_by_partition": dict(
+                sorted(latest_calibrant_file_id_by_partition.items())
+            ),
         }
     )
 
 
-def _parse_experiment_cursor(cursor: str | None) -> tuple[set[str], str, str]:
+def _parse_calibrant_partition_cursor(cursor: str | None) -> tuple[str, dict[str, str], dict[str, str]]:
     payload = _parse_cursor_payload(cursor)
-    seen = payload.get("seen_experiment_folder_ids", [])
-    seen_experiment_folder_ids = {str(folder_id) for folder_id in seen}
-    last_created = str(payload.get("last_created") or "")
-    last_file_id = str(payload.get("last_file_id") or "")
-    return seen_experiment_folder_ids, last_created, last_file_id
-
-
-def _serialize_calibrant_cursor(last_created: str, last_file_id: str) -> str:
-    return json.dumps(
-        {
-            "last_created": last_created,
-            "last_file_id": last_file_id,
-        }
+    since = str(payload.get("since") or "")
+    checksums_by_partition = _parse_checksum_map(payload.get("checksums_by_partition"))
+    latest_calibrant_file_id_by_partition = _parse_checksum_map(
+        payload.get("latest_calibrant_file_id_by_partition")
     )
+
+    # backward compatibility with prior calibrant file cursor payloads
+    if not latest_calibrant_file_id_by_partition:
+        legacy_file_id = str(payload.get("last_file_id") or payload.get("last_calibrant_file_id") or "")
+        if legacy_file_id:
+            latest_calibrant_file_id_by_partition = {"legacy": legacy_file_id}
+
+    return since, checksums_by_partition, latest_calibrant_file_id_by_partition
 
 
 def _parse_calibrant_cursor(cursor: str | None) -> tuple[str, str]:
-    payload = _parse_cursor_payload(cursor)
-    last_created = str(payload.get("last_created") or "")
-    last_file_id = str(payload.get("last_file_id") or payload.get("last_calibrant_file_id") or "")
-    return last_created, last_file_id
+    since, _, latest_file_by_partition = _parse_calibrant_partition_cursor(cursor)
+    legacy_file_id = latest_file_by_partition.get("legacy")
+    if legacy_file_id:
+        return since, legacy_file_id
+    for file_id in latest_file_by_partition.values():
+        if file_id:
+            return since, file_id
+    return since, ""
 
 
 def _latest_calibrant_scan_legacy(gc: Any, calibrants_folder_id: str, include_xrd: bool = False) -> dict[str, Any] | None:
@@ -154,44 +187,13 @@ def _latest_calibrant_scan_legacy(gc: Any, calibrants_folder_id: str, include_xr
     return latest
 
 
-def _latest_calibrant_scan_candidate(gc: Any) -> dict[str, Any] | None:
-    backend = get_discovery_backend()
-
-    if backend == DISCOVERY_BACKEND_DATAFILES:
-        try:
-            candidate = call_with_retries(latest_calibrant_candidate_from_datafiles, gc)
-            if candidate is None:
-                return None
-            return {
-                "file_id": candidate.file_id,
-                "item_id": candidate.item_id,
-                "file_name": candidate.file_name,
-                "created": candidate.created,
-            }
-        except Exception:
-            if not should_allow_discovery_fallback():
-                raise
-            calibrants_folder_id = os.getenv("GIRDER_CALIBRANTS_FOLDER_ID")
-            if not calibrants_folder_id:
-                raise ValueError(
-                    "GIRDER_CALIBRANTS_FOLDER_ID is required when discovery fallback is enabled."
-                )
-            return _latest_calibrant_scan_legacy(gc, calibrants_folder_id)
-
-    calibrants_folder_id = os.getenv("GIRDER_CALIBRANTS_FOLDER_ID")
-    if not calibrants_folder_id:
-        raise ValueError("GIRDER_CALIBRANTS_FOLDER_ID is not configured.")
-    return _latest_calibrant_scan_legacy(gc, calibrants_folder_id)
-
-
 def _parse_seen_folder_ids(cursor: str | None) -> set[str]:
-    payload = _parse_cursor_payload(cursor)
-    seen = payload.get("seen_experiment_folder_ids", [])
-    return {str(folder_id) for folder_id in seen}
+    _, checksums_by_partition = _parse_experiment_cursor(cursor)
+    return set(checksums_by_partition.keys())
 
 
 def _serialize_seen_folder_ids(seen: set[str]) -> str:
-    return _serialize_experiment_cursor(seen, "", "")
+    return _serialize_experiment_cursor(_default_since(), {partition_key: "" for partition_key in seen})
 
 
 def _parse_last_calibrant_file_id(cursor: str | None) -> str | None:
@@ -200,7 +202,7 @@ def _parse_last_calibrant_file_id(cursor: str | None) -> str | None:
 
 
 def _serialize_last_calibrant_file_id(file_id: str) -> str:
-    return _serialize_calibrant_cursor("", file_id)
+    return _serialize_calibrant_cursor(_default_since(), {}, {"legacy": file_id})
 
 
 def _list_candidate_experiments_legacy(gc: Any, root_folder_id: str, calibrants_folder_id: str | None) -> list[dict[str, Any]]:
@@ -219,25 +221,38 @@ def _list_candidate_experiments_legacy(gc: Any, root_folder_id: str, calibrants_
     return candidate_experiments
 
 
-def _list_candidate_experiments_datafiles(gc: Any, context: SensorEvaluationContext) -> list[dict[str, Any]]:
-    rows = call_with_retries(list_experiment_candidates_from_datafiles, gc)
-    return [
-        {
-            "_id": row.experiment_folder_id,
-            "name": row.experiment_folder_name,
-            "raw_folder_id": row.raw_folder_id,
-            "created": row.created,
-            "file_id": row.file_id,
-        }
-        for row in rows
-    ]
+def _extract_file_id_from_partition_details(details: list[dict[str, Any]]) -> str | None:
+    candidates: list[tuple[str, str, str]] = []
+    for row in details:
+        file_obj = row.get("file") if isinstance(row.get("file"), dict) else row
+        file_name = str(file_obj.get("name") or row.get("name") or "").strip()
+        file_id = str(
+            file_obj.get("_id")
+            or file_obj.get("id")
+            or file_obj.get("fileId")
+            or file_obj.get("file_id")
+            or row.get("fileId")
+            or row.get("file_id")
+            or ""
+        ).strip()
+        if not file_id:
+            continue
+        if file_name and not _CALIBRANT_SCAN_PATTERN.match(file_name) and not file_name.lower().endswith(".h5"):
+            continue
+        created = str(
+            file_obj.get("created")
+            or file_obj.get("updated")
+            or row.get("created")
+            or row.get("updated")
+            or ""
+        ).strip()
+        candidates.append((created, file_id, file_name))
 
-
-def _latest_calibrant_scan_file_id_datafiles(gc: Any) -> str | None:
-    candidate = _latest_calibrant_scan_candidate(gc)
-    if not candidate:
+    if not candidates:
         return None
-    return str(candidate["file_id"])
+
+    _, latest_file_id, _ = max(candidates)
+    return latest_file_id
 
 
 @sensor(
@@ -248,51 +263,108 @@ def _latest_calibrant_scan_file_id_datafiles(gc: Any) -> str | None:
 )
 def calibration_scan_sensor(context: SensorEvaluationContext, GirderClient=None):
     calibrants_folder_id = os.getenv("GIRDER_CALIBRANTS_FOLDER_ID")
-    if not calibrants_folder_id:
-        return SkipReason("GIRDER_CALIBRANTS_FOLDER_ID is not configured.")
-
     gc = GirderClient or context.resources.GirderClient
-    backend = get_discovery_backend()
-    last_created, last_file_id = _parse_calibrant_cursor(context.cursor)
+    since, checksums_by_partition, latest_file_id_by_partition = _parse_calibrant_partition_cursor(context.cursor)
+    poll_since = since or _default_since()
 
     try:
-        candidate = _latest_calibrant_scan_candidate(gc)
+        partition_updates = call_with_retries(
+            list_partitions_from_aimdl,
+            gc,
+            data_type="xrd_calibrant_raw",
+            since=poll_since,
+        )
     except Exception as exc:
-        if backend == DISCOVERY_BACKEND_DATAFILES and should_allow_discovery_fallback():
-            context.log.warning(
-                "Datafiles calibrant discovery failed (%s). Falling back to legacy discovery.",
-                exc,
-            )
-            candidate = _latest_calibrant_scan_legacy(gc, calibrants_folder_id)
-        else:
+        if not should_allow_discovery_fallback():
             raise
+        if not calibrants_folder_id:
+            raise ValueError(
+                "GIRDER_CALIBRANTS_FOLDER_ID is required when discovery fallback is enabled."
+            )
+        context.log.warning(
+            "Partition calibrant discovery failed (%s). Falling back to legacy discovery.",
+            exc,
+        )
+        candidate = _latest_calibrant_scan_legacy(gc, calibrants_folder_id)
+        if not candidate:
+            return SkipReason("No calibrant scan files were detected.")
 
-    if not candidate:
-        return SkipReason("No calibrant scan files were detected.")
+        legacy_file_id = str(candidate["file_id"])
+        if not context.cursor:
+            return SensorResult(
+                cursor=_serialize_calibrant_cursor(
+                    _default_since(),
+                    checksums_by_partition,
+                    {"legacy": legacy_file_id},
+                ),
+                run_requests=[],
+            )
+
+        if latest_file_id_by_partition.get("legacy") == legacy_file_id:
+            return SkipReason("No new calibrant scan files detected.")
+
+        return SensorResult(
+            cursor=_serialize_calibrant_cursor(
+                _default_since(),
+                checksums_by_partition,
+                {"legacy": legacy_file_id},
+            ),
+            run_requests=[
+                RunRequest(
+                    run_key=f"calibrant:legacy:{legacy_file_id}",
+                    job_name="calibration_precompute",
+                    tags={"calibrant_scan_file_id": legacy_file_id},
+                )
+            ],
+        )
+
+    merged_checksums = dict(checksums_by_partition)
+    merged_checksums.update(partition_updates)
+    changed_partition_keys = [
+        partition_key
+        for partition_key, checksum in partition_updates.items()
+        if checksums_by_partition.get(partition_key) != checksum
+    ]
 
     if not context.cursor:
         return SensorResult(
-            cursor=_serialize_calibrant_cursor(str(candidate["created"]), str(candidate["file_id"])),
+            cursor=_serialize_calibrant_cursor(_next_since(), merged_checksums, latest_file_id_by_partition),
             run_requests=[],
         )
 
-    if not _is_newer_created_file_id(
-        str(candidate["created"]),
-        str(candidate["file_id"]),
-        last_created,
-        last_file_id,
-    ):
-        return SkipReason("No new calibrant scan files detected.")
+    if not changed_partition_keys:
+        return SensorResult(
+            cursor=_serialize_calibrant_cursor(_next_since(), merged_checksums, latest_file_id_by_partition),
+            run_requests=[],
+        )
+
+    run_requests: list[RunRequest] = []
+    updated_file_map = dict(latest_file_id_by_partition)
+    for partition_key in changed_partition_keys:
+        checksum = partition_updates[partition_key]
+        details = call_with_retries(
+            list_partition_details_from_aimdl,
+            gc,
+            key=partition_key,
+            data_type="xrd_calibrant_raw",
+        )
+        calibrant_file_id = _extract_file_id_from_partition_details(details) or updated_file_map.get(partition_key) or partition_key
+        updated_file_map[partition_key] = calibrant_file_id
+        run_requests.append(
+            RunRequest(
+                run_key=f"calibrant:{partition_key}:{checksum}",
+                job_name="calibration_precompute",
+                tags={
+                    "calibrant_partition_key": partition_key,
+                    "data_checksum": checksum,
+                    "calibrant_scan_file_id": calibrant_file_id,
+                },
+            )
+        )
 
     return SensorResult(
-        cursor=_serialize_calibrant_cursor(str(candidate["created"]), str(candidate["file_id"])),
-        run_requests=[
-            RunRequest(
-                run_key=f"calibrant:{candidate['file_id']}",
-                job_name="calibration_precompute",
-                tags={"calibrant_scan_file_id": str(candidate["file_id"])},
-            )
-        ],
+        cursor=_serialize_calibrant_cursor(_next_since(), merged_checksums, updated_file_map),
+        run_requests=run_requests,
     )
 
 
@@ -306,92 +378,112 @@ def experiment_folder_sensor(context: SensorEvaluationContext, GirderClient=None
     root_folder_id = os.getenv("GIRDER_ROOT_FOLDER_ID")
     calibrants_folder_id = os.getenv("GIRDER_CALIBRANTS_FOLDER_ID")
 
-    if not root_folder_id:
+    if not root_folder_id and should_allow_discovery_fallback():
         return SkipReason("GIRDER_ROOT_FOLDER_ID is not configured.")
 
     gc = GirderClient or context.resources.GirderClient
 
-    previously_seen, last_created, last_file_id = _parse_experiment_cursor(context.cursor)
-    backend = get_discovery_backend()
+    since, checksums_by_partition = _parse_experiment_cursor(context.cursor)
+    poll_since = since or _default_since()
 
     try:
-        if backend == DISCOVERY_BACKEND_DATAFILES:
-            candidate_experiments = _list_candidate_experiments_datafiles(gc, context)
-            if calibrants_folder_id:
-                candidate_experiments = [
-                    exp
-                    for exp in candidate_experiments
-                    if str(exp.get("_id", "")) != calibrants_folder_id
-                ]
-        else:
-            candidate_experiments = _list_candidate_experiments_legacy(gc, root_folder_id, calibrants_folder_id)
+        partition_updates = call_with_retries(
+            list_partitions_from_aimdl,
+            gc,
+            data_type="xrd_raw",
+            since=poll_since,
+        )
     except Exception as exc:
-        if backend == DISCOVERY_BACKEND_DATAFILES and should_allow_discovery_fallback():
-            context.log.warning(
-                "Datafiles experiment discovery failed (%s). Falling back to legacy discovery.",
-                exc,
-            )
-            candidate_experiments = _list_candidate_experiments_legacy(
-                gc,
-                root_folder_id,
-                calibrants_folder_id,
-            )
-        else:
+        if not should_allow_discovery_fallback():
             raise
+        if not root_folder_id:
+            raise ValueError("GIRDER_ROOT_FOLDER_ID is required when discovery fallback is enabled.")
+        context.log.warning(
+            "Partition experiment discovery failed (%s). Falling back to legacy discovery.",
+            exc,
+        )
+        candidate_experiments = _list_candidate_experiments_legacy(gc, root_folder_id, calibrants_folder_id)
+        if not candidate_experiments:
+            return SkipReason("No experiments with raw scan files detected.")
 
-    if not candidate_experiments:
-        return SkipReason("No experiments with raw scan files detected.")
+        seen_partitions = set(checksums_by_partition.keys())
+        if not context.cursor:
+            return SensorResult(
+                cursor=_serialize_experiment_cursor(
+                    _default_since(),
+                    {str(exp["_id"]): "" for exp in candidate_experiments},
+                ),
+                run_requests=[],
+                dynamic_partitions_requests=[],
+            )
+
+        new_experiments = [exp for exp in candidate_experiments if str(exp["_id"]) not in seen_partitions]
+        if not new_experiments:
+            return SkipReason("No new experiment folders detected.")
+
+        run_requests = [
+            RunRequest(
+                run_key=f"experiment:legacy:{str(exp['_id'])}",
+                job_name="xrd",
+                partition_key=str(exp["_id"]),
+                tags={"experiment_folder_name": str(exp.get("name", "unknown"))},
+            )
+            for exp in new_experiments
+        ]
+        all_seen = dict(checksums_by_partition)
+        all_seen.update({str(exp["_id"]): "" for exp in new_experiments})
+
+        return SensorResult(
+            cursor=_serialize_experiment_cursor(_default_since(), all_seen),
+            run_requests=run_requests,
+            dynamic_partitions_requests=[
+                experiment_partitions.build_add_request([str(exp["_id"]) for exp in new_experiments])
+            ],
+        )
+
+    merged_checksums = dict(checksums_by_partition)
+    merged_checksums.update(partition_updates)
+    changed_partition_keys = [
+        partition_key
+        for partition_key, checksum in partition_updates.items()
+        if checksums_by_partition.get(partition_key) != checksum
+    ]
 
     if not context.cursor:
-        newest = max(candidate_experiments, key=lambda exp: (str(exp.get("created") or ""), str(exp.get("file_id") or "")))
         return SensorResult(
-            cursor=_serialize_experiment_cursor(
-                {str(exp["_id"]) for exp in candidate_experiments},
-                str(newest.get("created") or ""),
-                str(newest.get("file_id") or ""),
-            ),
+            cursor=_serialize_experiment_cursor(_next_since(), merged_checksums),
             run_requests=[],
             dynamic_partitions_requests=[],
         )
 
-    new_experiments = [
-        exp
-        for exp in candidate_experiments
-        if str(exp["_id"]) not in previously_seen
-        and (
-            not backend == DISCOVERY_BACKEND_DATAFILES
-            or _is_newer_created_file_id(
-                str(exp.get("created") or ""),
-                str(exp.get("file_id") or ""),
-                last_created,
-                last_file_id,
-            )
+    if not changed_partition_keys:
+        return SensorResult(
+            cursor=_serialize_experiment_cursor(_next_since(), merged_checksums),
+            run_requests=[],
+            dynamic_partitions_requests=[],
         )
-    ]
-    if not new_experiments:
-        return SkipReason("No new experiment folders detected.")
 
+    existing_partitions = set(context.instance.get_dynamic_partitions(experiment_partitions.name))
+    new_partitions = [partition_key for partition_key in changed_partition_keys if partition_key not in existing_partitions]
     run_requests = [
         RunRequest(
-            run_key=f"experiment:{exp['_id']}",
+            run_key=f"experiment:{partition_key}:{partition_updates[partition_key]}",
             job_name="xrd",
-            partition_key=str(exp["_id"]),
-            tags={"experiment_folder_name": str(exp.get("name", "unknown"))},
+            partition_key=partition_key,
+            tags={
+                "partition_key": partition_key,
+                "data_checksum": partition_updates[partition_key],
+            },
         )
-        for exp in new_experiments
+        for partition_key in changed_partition_keys
     ]
 
-    all_seen = previously_seen | {str(exp["_id"]) for exp in new_experiments}
-    newest = max(new_experiments, key=lambda exp: (str(exp.get("created") or ""), str(exp.get("file_id") or "")))
+    dynamic_requests = []
+    if new_partitions:
+        dynamic_requests = [experiment_partitions.build_add_request(new_partitions)]
 
     return SensorResult(
-        cursor=_serialize_experiment_cursor(
-            all_seen,
-            str(newest.get("created") or ""),
-            str(newest.get("file_id") or ""),
-        ),
+        cursor=_serialize_experiment_cursor(_next_since(), merged_checksums),
         run_requests=run_requests,
-        dynamic_partitions_requests=[
-            experiment_partitions.build_add_request([str(exp["_id"]) for exp in new_experiments])
-        ],
+        dynamic_partitions_requests=dynamic_requests,
     )

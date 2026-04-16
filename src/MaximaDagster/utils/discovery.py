@@ -230,6 +230,49 @@ def _fetch_datafiles_page(gc: Any, data_type: str, limit: int, offset: int) -> l
     return rows
 
 
+def list_partitions_from_aimdl(gc: Any, data_type: str, since: str) -> dict[str, str]:
+    response = gc.get(
+        "aimdl/partition",
+        parameters={
+            "dataType": data_type,
+            "since": since,
+        },
+    )
+    if response is None:
+        return {}
+    if not isinstance(response, dict):
+        raise DatafilesDiscoveryError("Expected dict response from aimdl/partition")
+
+    normalized: dict[str, str] = {}
+    for key, checksum in response.items():
+        partition_key = _as_str(key)
+        checksum_text = _as_str(checksum)
+        if not partition_key or not checksum_text:
+            continue
+        normalized[partition_key] = checksum_text
+    return normalized
+
+
+def list_partition_details_from_aimdl(gc: Any, key: str, data_type: str) -> list[dict[str, Any]]:
+    response = gc.get(
+        "aimdl/partition/details",
+        parameters={
+            "key": key,
+            "dataType": data_type,
+        },
+    )
+    if response is None:
+        return []
+    if not isinstance(response, list):
+        raise DatafilesDiscoveryError("Expected list response from aimdl/partition/details")
+
+    rows: list[dict[str, Any]] = []
+    for row in response:
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
 def _iter_datafiles_rows(
     gc: Any,
     data_type: str,
