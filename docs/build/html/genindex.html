@@ -88,6 +88,7 @@
  | <a href="#I"><strong>I</strong></a>
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
+ | <a href="#O"><strong>O</strong></a>
  | <a href="#P"><strong>P</strong></a>
  | <a href="#R"><strong>R</strong></a>
  | <a href="#S"><strong>S</strong></a>
@@ -100,6 +101,8 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.results_publisher.build_calibrant_metadata">build_calibrant_metadata() (in module MaximaDagster.utils.results_publisher)</a>
+</li>
+      <li><a href="api/runtime_orchestration.html#MaximaDagster.sensors.build_girder_partition_sensor">build_girder_partition_sensor() (in module MaximaDagster.sensors)</a>
 </li>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.results_publisher.build_item_link">build_item_link() (in module MaximaDagster.utils.results_publisher)</a>
 </li>
@@ -181,6 +184,10 @@
 <h2 id="F">F</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.fetch_partition_details">fetch_partition_details() (in module MaximaDagster.utils.discovery)</a>
+</li>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.fetch_partitions">fetch_partitions() (in module MaximaDagster.utils.discovery)</a>
+</li>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.CalibrantCandidate.file_id">file_id (MaximaDagster.utils.discovery.CalibrantCandidate attribute)</a>
 
       <ul>
@@ -197,8 +204,6 @@
         <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.XrdRawScanCandidate.file_name">(MaximaDagster.utils.discovery.XrdRawScanCandidate attribute)</a>
 </li>
       </ul></li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.girder_helpers.find_child_folder_by_name">find_child_folder_by_name() (in module MaximaDagster.utils.girder_helpers)</a>
-</li>
       <li><a href="api/processing_modules.html#MaximaDagster.modules.LatticeParameters.find_peak_q">find_peak_q() (in module MaximaDagster.modules.LatticeParameters)</a>
 </li>
   </ul></td>
@@ -207,25 +212,27 @@
 <h2 id="G">G</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.girder_helpers.get_child_folders">get_child_folders() (in module MaximaDagster.utils.girder_helpers)</a>
-</li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_datafiles_limit">get_datafiles_limit() (in module MaximaDagster.utils.discovery)</a>
-</li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_datafiles_max_pages">get_datafiles_max_pages() (in module MaximaDagster.utils.discovery)</a>
-</li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_datafiles_max_rows">get_datafiles_max_rows() (in module MaximaDagster.utils.discovery)</a>
-</li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_datafiles_retry_count">get_datafiles_retry_count() (in module MaximaDagster.utils.discovery)</a>
 </li>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_datafiles_retry_delay_seconds">get_datafiles_retry_delay_seconds() (in module MaximaDagster.utils.discovery)</a>
 </li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_discovery_backend">get_discovery_backend() (in module MaximaDagster.utils.discovery)</a>
-</li>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.CalibrationCache.get_entry_for_calibrant">get_entry_for_calibrant() (MaximaDagster.utils.poni_manager.CalibrationCache method)</a>
 </li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.girder_helpers.get_optional_igsn">get_optional_igsn() (in module MaximaDagster.utils.girder_helpers)</a>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_experiment_date">get_experiment_date() (in module MaximaDagster.utils.discovery)</a>
+</li>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_fname">get_fname() (in module MaximaDagster.utils.discovery)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_folder_id">get_folder_id() (in module MaximaDagster.utils.discovery)</a>
+</li>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_igsn">get_igsn() (in module MaximaDagster.utils.discovery)</a>
+</li>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_item_id">get_item_id() (in module MaximaDagster.utils.discovery)</a>
+</li>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_meta">get_meta() (in module MaximaDagster.utils.discovery)</a>
+</li>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.get_model_type">get_model_type() (in module MaximaDagster.utils.discovery)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -255,16 +262,10 @@
 <h2 id="L">L</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.latest_calibrant_candidate_from_datafiles">latest_calibrant_candidate_from_datafiles() (in module MaximaDagster.utils.discovery)</a>
-</li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.list_experiment_candidates_from_datafiles">list_experiment_candidates_from_datafiles() (in module MaximaDagster.utils.discovery)</a>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.load_geometry_from_poni">load_geometry_from_poni() (in module MaximaDagster.utils.poni_manager)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.list_xrd_scan_candidates_from_datafiles">list_xrd_scan_candidates_from_datafiles() (in module MaximaDagster.utils.discovery)</a>
-</li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.load_geometry_from_poni">load_geometry_from_poni() (in module MaximaDagster.utils.poni_manager)</a>
-</li>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.CalibrationCache.load_index">load_index() (MaximaDagster.utils.poni_manager.CalibrationCache method)</a>
 </li>
   </ul></td>
@@ -332,13 +333,6 @@
 </li>
       </ul></li>
       <li>
-    MaximaDagster.utils.girder_helpers
-
-      <ul>
-        <li><a href="api/runtime_utilities.html#module-MaximaDagster.utils.girder_helpers">module</a>
-</li>
-      </ul></li>
-      <li>
     MaximaDagster.utils.patterns
 
       <ul>
@@ -385,8 +379,6 @@
 </li>
         <li><a href="api/runtime_utilities.html#module-MaximaDagster.utils.discovery">MaximaDagster.utils.discovery</a>
 </li>
-        <li><a href="api/runtime_utilities.html#module-MaximaDagster.utils.girder_helpers">MaximaDagster.utils.girder_helpers</a>
-</li>
         <li><a href="api/runtime_utilities.html#module-MaximaDagster.utils.patterns">MaximaDagster.utils.patterns</a>
 </li>
         <li><a href="api/runtime_utilities.html#module-MaximaDagster.utils.poni_manager">MaximaDagster.utils.poni_manager</a>
@@ -397,15 +389,27 @@
   </ul></td>
 </tr></table>
 
+<h2 id="O">O</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/processing_modules.html#MaximaDagster.modules.calibrate.PeakOptimizer.optimize">optimize() (MaximaDagster.modules.calibrate.PeakOptimizer method)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="P">P</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.CacheEntry.poni_path">poni_path (MaximaDagster.utils.poni_manager.CacheEntry attribute)</a>
+      <li><a href="api/processing_modules.html#MaximaDagster.modules.calibrate.PeakOptimizer">PeakOptimizer (class in MaximaDagster.modules.calibrate)</a>
 </li>
-      <li><a href="api/processing_modules.html#MaximaDagster.modules.LatticeParameters.process_folder">process_folder() (in module MaximaDagster.modules.LatticeParameters)</a>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.CacheEntry.poni_item_id">poni_item_id (MaximaDagster.utils.poni_manager.CacheEntry attribute)</a>
+</li>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.CacheEntry.poni_path">poni_path (MaximaDagster.utils.poni_manager.CacheEntry attribute)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/processing_modules.html#MaximaDagster.modules.LatticeParameters.process_folder">process_folder() (in module MaximaDagster.modules.LatticeParameters)</a>
+</li>
       <li><a href="api/processing_modules.html#MaximaDagster.modules.LatticeParameters.process_folders">process_folders() (in module MaximaDagster.modules.LatticeParameters)</a>
 </li>
       <li><a href="api/processing_modules.html#MaximaDagster.modules.LatticeParameters.process_integrated_dict">process_integrated_dict() (in module MaximaDagster.modules.LatticeParameters)</a>
@@ -440,8 +444,6 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/runtime_utilities.html#MaximaDagster.utils.poni_manager.CalibrationCache.save_index">save_index() (MaximaDagster.utils.poni_manager.CalibrationCache method)</a>
 </li>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.discovery.should_allow_discovery_fallback">should_allow_discovery_fallback() (in module MaximaDagster.utils.discovery)</a>
-</li>
   </ul></td>
 </tr></table>
 
@@ -452,7 +454,7 @@
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.results_publisher.upload_result_batch">upload_result_batch() (in module MaximaDagster.utils.results_publisher)</a>
+      <li><a href="api/runtime_utilities.html#MaximaDagster.utils.results_publisher.upload_artifact">upload_artifact() (in module MaximaDagster.utils.results_publisher)</a>
 </li>
   </ul></td>
 </tr></table>

@@ -9,14 +9,6 @@ Discovery
    :undoc-members:
    :show-inheritance:
 
-Girder Helpers
---------------
-
-.. automodule:: MaximaDagster.utils.girder_helpers
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Patterns
 --------
 

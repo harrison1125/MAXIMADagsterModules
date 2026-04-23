@@ -6,16 +6,15 @@ Jobs
 
 - xrd: partitioned experiment processing flow
 - calibration_precompute: calibrant-driven precompute flow
-- discovery_smoke: diagnostic smoke check for discovery operations
 
 Sensors
 -------
 
-- experiment_folder_sensor
-  - Polls for experiments with raw XRD scan files
+- xrd_experiment_sensor
+  - Polls partition checksums for ``xrd_raw``
   - Adds dynamic partitions and launches xrd runs
-- calibration_scan_sensor
-  - Polls calibrant scans
+- xrd_calibration_sensor
+  - Polls partition checksums for ``xrd_calibrant_raw``
   - Launches calibration_precompute runs when new calibrant input appears
 
 Asset Graph
@@ -23,10 +22,9 @@ Asset Graph
 
 The runtime critical assets include:
 
-- xrdxrf_scans (XRD scan loading payload)
+- xrd_raw
+- xrd_calibrant_raw
 - calibration_model
 - poni
+- active_poni
 - azimuthal_integration
-- publish_xrd_results
-
-Note: lattice_parameters exists as an asset implementation, but is not currently selected in the xrd job definition.

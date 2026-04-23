@@ -8,7 +8,7 @@ and publishes processed XRD outputs back to Girder.
 
 ## What It Does
 
-- Watches a Girder root folder for new experiment folders that contain `raw/scan_point_*_data_*.h5` files.
+- Polls Girder partition endpoints for XRD experiment and calibrant updates.
 - Triggers one Dagster run per new experiment using dynamic partitions.
 - Builds an XRD pipeline that includes scan loading, calibration model use, PONI generation, and azimuthal integration.
 - Publishes XRD result artifacts and metadata back to the experiment folder in Girder.
@@ -23,11 +23,10 @@ and publishes processed XRD outputs back to Girder.
 
 ## Core Components
 
-- `experiment_folder_sensor`: detects new experiments and launches `xrd` with partition key = Girder experiment folder id.
-- `calibration_scan_sensor`: detects latest calibrant scan updates and launches `calibration_precompute`.
+- `xrd_experiment_sensor`: monitors `xrd_raw` partition checksums and launches `xrd`.
+- `xrd_calibration_sensor`: monitors `xrd_calibrant_raw` partition checksums and launches `calibration_precompute`.
 - `xrd`: materializes XRD assets for a partitioned experiment.
 - `calibration_precompute`: precomputes and refreshes calibration prerequisites.
-- `discovery_smoke`: diagnostic job for discovery backend checks.
 
 ## Repository Layout
 
@@ -56,8 +55,6 @@ Copy `.env.example` to `.env` and provide values:
 
 - `GIRDER_API_URL`: Girder API base URL
 - `GIRDER_API_KEY`: API key for an account with read/write access to relevant folders
-- `GIRDER_ROOT_FOLDER_ID`: parent folder containing experiment subfolders
-- `GIRDER_CALIBRANTS_FOLDER_ID`: folder containing calibrant `.h5` scan files
 - `GIRDER_MODEL_ITEM_ID`: Girder item ID for the `.pth` calibration model
 
 ## Local Development
