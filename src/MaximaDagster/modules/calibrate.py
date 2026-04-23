@@ -10,12 +10,10 @@ Classes:
     MaximaCalibrator: The main interface for loading models and running calibration.
 """
 
-import argparse
 import numpy as np
 import torch
 import torch.nn as nn
 from torchvision import transforms
-import fabio
 from pyFAI.geometry import Geometry
 from pyFAI.calibrant import CALIBRANT_FACTORY
 from pyFAI.detectors import detector_factory
@@ -308,28 +306,9 @@ def calibrate_image(
     )
     return calibrator.calibrate(image_path=image_path, output_path=output_path)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="MaximaCalibrator: MaxSWIN + pyFAI")
-    parser.add_argument("--image", required=True, help="Input image file")
-    parser.add_argument("--model", required=True, help="Model checkpoint (.pth)")
-    parser.add_argument("--calibrant", default="alpha_Al2O3")
-    parser.add_argument("--detector", default="Eiger2Cdte_1M")
-    parser.add_argument("--wavelength", type=float, default=0.5121261413149675e-10)
-    parser.add_argument("--output", default=None)
-    
-    args = parser.parse_args()
-
-    calibrator = MaximaCalibrator(
-        model_path=args.model,
-        calibrant=args.calibrant,
-        detector=args.detector,
-        wavelength=args.wavelength
-    )
-
-    result = calibrator.calibrate(args.image, args.output)
-
 
 __all__ = [
     "MaximaCalibrator",
     "calibrate_image",
+    "PeakOptimizer",
 ]

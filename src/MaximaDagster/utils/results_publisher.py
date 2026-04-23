@@ -2,17 +2,49 @@
 
 from __future__ import annotations
 
+import io
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 
 _WORKFLOW_VERSION_CACHE: str | None = None
 
+def upload_artifact(
+    gc: Any,
+    folder_id: str,
+    filename: str,
+    payload: bytes,
+    mime_type: str,
+    metadata: dict[str, Any],
+) -> str:
+    """Uploads arbitrary bytes to a Girder folder and returns the new Item ID."""
+    item = gc.loadOrCreateItem(filename, folder_id)
+    existing_files = gc.get(f"item/{item['_id']}/files", parameters={"limit": 1})
+
+    stream = io.BytesIO(payload)
+    size = len(payload)
+
+    if existing_files:
+        gc.uploadFileContents(existing_files[0]["_id"], stream, size)
+    else:
+        file_meta = gc.post(
+            "file",
+            parameters={
+                "parentType": "item",
+                "parentId": item["_id"],
+                "name": filename,
+                "size": size,
+                "mimeType": mime_type,
+            },
+        )
+        gc._uploadContents(file_meta, stream, size)
+
+    gc.addMetadataToItem(item["_id"], metadata)
+    
+    return str(item["_id"])
 
 def get_workflow_version() -> str:
     """Get the workflow version from pyproject.toml.
@@ -41,53 +73,6 @@ def get_workflow_version() -> str:
     except Exception:
         _WORKFLOW_VERSION_CACHE = "unknown"
         return "unknown"
-
-
-def upload_result_batch(
-    gc: Any,
-    folder_id: str,
-    results: dict[int, pd.DataFrame],
-    scan_metadata_getter: callable[[int], dict[str, Any]],
-    result_type: str,
-    upload_fn: callable,
-) -> list[str]:
-    """
-    Upload a batch of dataframe results as CSV files to Girder.
-    
-    Handles the common pattern of uploading multiple scan results with optional metadata.
-    Deduplicates logic used for azimuthal, lattice, and other scan result types.
-    
-    Args:
-        gc: Girder client instance
-        folder_id: Target folder ID in Girder
-        results: Dict mapping scan_id (int) to pandas DataFrame
-        scan_metadata_getter: Callable(scan_id) -> dict with metadata like {"igsn": "..."}
-        result_type: Name suffix for filename (e.g., "azimuthal", "lattice_parameters")
-        upload_fn: Function(gc, folder_id, filename, payload, mime_type, metadata) to handle upload
-    
-    Returns:
-        List of uploaded filenames
-    """
-    uploaded_files = []
-
-    for scan_id, dataframe in results.items():
-        filename = f"scan_point_{int(scan_id)}_{result_type}.csv"
-        payload = dataframe.to_csv(index=False).encode("utf-8")
-        
-        item_metadata = scan_metadata_getter(scan_id)
-        
-        upload_fn(
-            gc=gc,
-            folder_id=folder_id,
-            filename=filename,
-            payload=payload,
-            mime_type="text/csv",
-            item_metadata=item_metadata or None,
-        )
-        
-        uploaded_files.append(filename)
-
-    return uploaded_files
 
 
 def build_item_link(girder_url: str, item_id: str) -> str:
@@ -173,7 +158,7 @@ def build_poni_linkage_metadata(
 
 
 __all__ = [
-    "upload_result_batch",
+    "upload_artifact",
     "build_item_link",
     "build_prov_metadata",
     "build_model_metadata",

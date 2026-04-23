@@ -1,175 +1,103 @@
+from __future__ import annotations
+
 import pytest
 
 from MaximaDagster.utils.discovery import (
+    DatafilesDiscoveryError,
     call_with_retries,
-    get_datafiles_limit,
-    get_datafiles_max_pages,
-    get_datafiles_max_rows,
+    fetch_partition_details,
+    fetch_partitions,
     get_datafiles_retry_count,
     get_datafiles_retry_delay_seconds,
-    get_discovery_backend,
-    latest_calibrant_candidate_from_datafiles,
-    list_xrd_scan_candidates_from_datafiles,
-    list_experiment_candidates_from_datafiles,
-    should_allow_discovery_fallback,
 )
 
 
-class _FakeDatafilesClient:
-    def __init__(self, rows_by_type, files_by_item=None):
-        self.rows_by_type = rows_by_type
-        self.files_by_item = files_by_item or {}
+class _FakePartitionClient:
+    def __init__(self, partition_response=None, details_response=None):
+        self.partition_response = partition_response
+        self.details_response = details_response
 
     def get(self, route, parameters=None):
-        assert route == "aimdl/datafiles"
-        data_type = (parameters or {}).get("dataType")
-        limit = int((parameters or {}).get("limit", 200))
-        offset = int((parameters or {}).get("offset", 0))
-        rows = list(self.rows_by_type.get(data_type, []))
-        return rows[offset : offset + limit]
-
-    def listFile(self, item_id):
-        return list(self.files_by_item.get(item_id, []))
-
-    def getFolder(self, folder_id):
-        if folder_id == "raw_1":
-            return {"_id": "raw_1", "parentId": "exp_1", "name": "raw"}
-        return {"_id": folder_id, "parentId": "exp_unknown", "name": "raw"}
+        _ = parameters
+        if route == "aimdl/partition":
+            return self.partition_response
+        if route == "aimdl/partition/details":
+            return self.details_response
+        raise AssertionError(route)
 
 
-def test_list_experiment_candidates_deduplicates_by_experiment_id(monkeypatch):
-    monkeypatch.setenv("DISCOVERY_DATAFILES_LIMIT", "2")
+def test_fetch_partitions_returns_empty_dict_on_none_response() -> None:
+    gc = _FakePartitionClient(partition_response=None)
 
-    gc = _FakeDatafilesClient(
-        {
-            "xrd_raw": [
-                {
-                    "_id": "f3",
-                    "name": "scan_point_1_data_00003.h5",
-                    "created": "2026-01-03T00:00:00.000+00:00",
-                    "folderId": "raw_1",
-                    "experimentFolderId": "exp_1",
-                    "experimentFolderName": "Experiment 1",
-                },
-                {
-                    "_id": "f2",
-                    "name": "scan_point_0_data_00002.h5",
-                    "created": "2026-01-02T00:00:00.000+00:00",
-                    "folderId": "raw_1",
-                    "experimentFolderId": "exp_1",
-                    "experimentFolderName": "Experiment 1",
-                },
-                {
-                    "_id": "f1",
-                    "name": "scan_point_0_data_00001.h5",
-                    "created": "2026-01-01T00:00:00.000+00:00",
-                    "folderId": "raw_2",
-                    "experimentFolderId": "exp_2",
-                    "experimentFolderName": "Experiment 2",
-                },
-            ]
+    result = fetch_partitions(gc, data_type="xrd_raw", since="1970-01-01T00:00:00+00:00")
+
+    assert result == {}
+
+
+def test_fetch_partitions_raises_for_non_dict_response() -> None:
+    gc = _FakePartitionClient(partition_response=["not", "a", "dict"])
+
+    with pytest.raises(DatafilesDiscoveryError, match="Expected dict"):
+        fetch_partitions(gc, data_type="xrd_raw", since="1970-01-01T00:00:00+00:00")
+
+
+def test_fetch_partitions_filters_blank_keys_and_checksums() -> None:
+    gc = _FakePartitionClient(
+        partition_response={
+            "exp_1": "abc",
+            "": "skip",
+            "exp_2": "",
+            "exp_3": " def ",
+            None: "ghi",
         }
     )
 
-    rows = list_experiment_candidates_from_datafiles(gc)
+    result = fetch_partitions(gc, data_type="xrd_raw", since="1970-01-01T00:00:00+00:00")
 
-    assert {row.experiment_folder_id for row in rows} == {"exp_1", "exp_2"}
-
-
-def test_latest_calibrant_candidate_uses_created_then_file_id(monkeypatch):
-    monkeypatch.setenv("DISCOVERY_DATAFILES_LIMIT", "10")
-
-    gc = _FakeDatafilesClient(
-        {
-            "xrd_calibrant_raw": [
-                {
-                    "_id": "cal_2",
-                    "name": "xrd_calibrant_data_000002.h5",
-                    "created": "2026-01-10T00:00:00.000+00:00",
-                },
-                {
-                    "_id": "cal_3",
-                    "name": "xrd_calibrant_data_000003.h5",
-                    "created": "2026-01-10T00:00:00.000+00:00",
-                },
-            ]
-        },
-        files_by_item={
-            "cal_2": [{"_id": "cal_file_2", "name": "xrd_calibrant_data_000002.h5"}],
-            "cal_3": [{"_id": "cal_file_3", "name": "xrd_calibrant_data_000003.h5"}],
-        },
-    )
-
-    latest = latest_calibrant_candidate_from_datafiles(gc)
-
-    assert latest is not None
-    assert latest.file_id == "cal_file_3"
-    assert latest.item_id == "cal_3"
+    assert result == {"exp_1": "abc", "exp_3": "def"}
 
 
-def test_list_xrd_scan_candidates_filters_to_requested_experiment(monkeypatch) -> None:
-    monkeypatch.setenv("DISCOVERY_DATAFILES_LIMIT", "10")
+def test_fetch_partition_details_returns_empty_list_on_none_response() -> None:
+    gc = _FakePartitionClient(details_response=None)
 
-    gc = _FakeDatafilesClient(
-        {
-            "xrd_raw": [
-                {
-                    "_id": "row_1",
-                    "name": "scan_point_0_data_00001.h5",
-                    "created": "2026-01-03T00:00:00.000+00:00",
-                    "folderId": "raw_1",
-                    "experimentFolderId": "exp_1",
-                    "meta": {"igsn": "IGSN-1"},
-                },
-                {
-                    "_id": "row_2",
-                    "name": "scan_point_1_data_00002.h5",
-                    "created": "2026-01-04T00:00:00.000+00:00",
-                    "folderId": "raw_2",
-                    "experimentFolderId": "exp_2",
-                },
-            ]
-        },
-        files_by_item={
-            "row_1": [{"_id": "file_1", "name": "scan_point_0_data_00001.h5"}],
-            "row_2": [{"_id": "file_2", "name": "scan_point_1_data_00002.h5"}],
-        },
-    )
+    result = fetch_partition_details(gc, key="exp_1", data_type="xrd_raw")
 
-    candidates = list_xrd_scan_candidates_from_datafiles(gc, "exp_1")
-
-    assert len(candidates) == 1
-    assert candidates[0].experiment_folder_id == "exp_1"
-    assert candidates[0].file_id == "file_1"
-    assert candidates[0].igsn == "IGSN-1"
+    assert result == []
 
 
-def test_discovery_backend_and_fallback_env_parsing(monkeypatch) -> None:
-    monkeypatch.setenv("DISCOVERY_BACKEND", "datafiles")
-    monkeypatch.setenv("DISCOVERY_ALLOW_FALLBACK", "yes")
+def test_fetch_partition_details_raises_for_non_list_response() -> None:
+    gc = _FakePartitionClient(details_response={"bad": "shape"})
 
-    assert get_discovery_backend() == "datafiles"
-    assert should_allow_discovery_fallback() is True
-
-    monkeypatch.setenv("DISCOVERY_BACKEND", "unknown")
-    monkeypatch.setenv("DISCOVERY_ALLOW_FALLBACK", "off")
-
-    assert get_discovery_backend() == "legacy"
-    assert should_allow_discovery_fallback() is False
+    with pytest.raises(DatafilesDiscoveryError, match="Expected list"):
+        fetch_partition_details(gc, key="exp_1", data_type="xrd_raw")
 
 
-def test_discovery_limit_and_retry_parsing_with_invalid_values(monkeypatch) -> None:
-    monkeypatch.setenv("DISCOVERY_DATAFILES_LIMIT", "abc")
-    monkeypatch.setenv("DISCOVERY_DATAFILES_MAX_PAGES", "-1")
-    monkeypatch.setenv("DISCOVERY_DATAFILES_MAX_ROWS", "0")
+def test_fetch_partition_details_filters_non_dict_rows() -> None:
+    gc = _FakePartitionClient(details_response=[{"_id": "a"}, "bad", 1, {"_id": "b"}])
+
+    result = fetch_partition_details(gc, key="exp_1", data_type="xrd_raw")
+
+    assert result == [{"_id": "a"}, {"_id": "b"}]
+
+
+def test_retry_env_parsing_clamps_values(monkeypatch) -> None:
     monkeypatch.setenv("DISCOVERY_DATAFILES_RETRY_COUNT", "999")
     monkeypatch.setenv("DISCOVERY_DATAFILES_RETRY_DELAY_SECONDS", "999")
-
-    assert get_datafiles_limit() == 200
-    assert get_datafiles_max_pages() == 0
-    assert get_datafiles_max_rows() == 0
     assert get_datafiles_retry_count() == 5
     assert get_datafiles_retry_delay_seconds() == 10.0
+
+    monkeypatch.setenv("DISCOVERY_DATAFILES_RETRY_COUNT", "-5")
+    monkeypatch.setenv("DISCOVERY_DATAFILES_RETRY_DELAY_SECONDS", "-1")
+    assert get_datafiles_retry_count() == 0
+    assert get_datafiles_retry_delay_seconds() == 0.0
+
+
+def test_retry_env_parsing_invalid_values_fall_back_to_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("DISCOVERY_DATAFILES_RETRY_COUNT", "abc")
+    monkeypatch.setenv("DISCOVERY_DATAFILES_RETRY_DELAY_SECONDS", "abc")
+
+    assert get_datafiles_retry_count() == 2
+    assert get_datafiles_retry_delay_seconds() == 0.5
 
 
 def test_call_with_retries_retries_then_succeeds(monkeypatch) -> None:
@@ -178,7 +106,7 @@ def test_call_with_retries_retries_then_succeeds(monkeypatch) -> None:
 
     state = {"attempts": 0}
 
-    def flaky():
+    def flaky() -> str:
         state["attempts"] += 1
         if state["attempts"] < 3:
             raise RuntimeError("transient")
@@ -194,7 +122,7 @@ def test_call_with_retries_raises_last_error_after_exhaustion(monkeypatch) -> No
 
     state = {"attempts": 0}
 
-    def always_fail():
+    def always_fail() -> None:
         state["attempts"] += 1
         raise ValueError("boom")
 

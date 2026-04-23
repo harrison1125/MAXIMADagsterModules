@@ -1,5 +1,8 @@
 """
 Lattice parameter extraction from XRD/XRF scan data.
+
+CURRENTLY OUT OF SCOPE
+RETAINED FOR FUTURE IMPLEMENTATION
 """
 
 import os

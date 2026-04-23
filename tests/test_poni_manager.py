@@ -24,6 +24,7 @@ def test_validate_entry_checks_file_and_model_identity(tmp_path: Path) -> None:
     poni_path.write_text("poni")
     entry = {
         "poni_path": str(poni_path),
+        "poni_item_id": "poni_item_1",
         "model_version": "1.0",
         "model_source_file_id": "model_file",
     }
@@ -31,6 +32,19 @@ def test_validate_entry_checks_file_and_model_identity(tmp_path: Path) -> None:
     assert cache.validate_entry(entry, "1.0", "model_file") is True
     assert cache.validate_entry(entry, "2.0", "model_file") is False
     assert cache.validate_entry(entry, "1.0", "other_file") is False
+
+
+def test_validate_entry_requires_poni_item_id(tmp_path: Path) -> None:
+    cache = poni_manager.CalibrationCache(cache_dir=tmp_path)
+    poni_path = tmp_path / "a.poni"
+    poni_path.write_text("poni")
+    entry = {
+        "poni_path": str(poni_path),
+        "model_version": "1.0",
+        "model_source_file_id": "model_file",
+    }
+
+    assert cache.validate_entry(entry, "1.0", "model_file") is False
 
 
 def test_get_entry_for_calibrant_returns_valid_cache_entry(tmp_path: Path) -> None:
@@ -41,6 +55,7 @@ def test_get_entry_for_calibrant_returns_valid_cache_entry(tmp_path: Path) -> No
         {
             "cal_1": {
                 "poni_path": str(poni_path),
+                "poni_item_id": "poni_item_1",
                 "calibrant_scan_file_id": "cal_1",
                 "calibrant_scan_file_name": "xrd_calibrant_data_000001.h5",
                 "calibrant_scan_updated": "2026-03-12T10:00:00.000+00:00",
@@ -54,6 +69,7 @@ def test_get_entry_for_calibrant_returns_valid_cache_entry(tmp_path: Path) -> No
     entry = cache.get_entry_for_calibrant("cal_1", "1.0", "model_file")
 
     assert entry is not None
+    assert entry.poni_item_id == "poni_item_1"
     assert entry.calibrant_scan_file_id == "cal_1"
     assert entry.poni_path == poni_path
 
@@ -66,6 +82,7 @@ def test_save_entry_persists_calibrant_metadata(tmp_path: Path) -> None:
     cache.save_entry(
         calibrant_file_id="cal_9",
         poni_path=poni_path,
+        poni_item_id="poni_item_9",
         calibrant_scan_file_name="xrd_calibrant_data_000009.h5",
         calibrant_scan_updated="2026-03-15T10:00:00.000+00:00",
         model_version="2.0",
@@ -76,7 +93,31 @@ def test_save_entry_persists_calibrant_metadata(tmp_path: Path) -> None:
 
     assert index["cal_9"]["calibrant_scan_file_name"] == "xrd_calibrant_data_000009.h5"
     assert index["cal_9"]["model_version"] == "2.0"
+    assert index["cal_9"]["poni_item_id"] == "poni_item_9"
     assert "updated_at" in index["cal_9"]
+
+
+def test_get_entry_for_calibrant_returns_none_for_legacy_entry_without_item_id(tmp_path: Path) -> None:
+    cache = poni_manager.CalibrationCache(cache_dir=tmp_path)
+    poni_path = tmp_path / "legacy.poni"
+    poni_path.write_text("poni")
+    cache.save_index(
+        {
+            "legacy_cal": {
+                "poni_path": str(poni_path),
+                "calibrant_scan_file_id": "legacy_cal",
+                "calibrant_scan_file_name": "xrd_calibrant_data_000001.h5",
+                "calibrant_scan_updated": "2026-03-12T10:00:00.000+00:00",
+                "model_version": "1.0",
+                "model_source_file_id": "model_file",
+                "updated_at": "2026-03-12T11:00:00.000+00:00",
+            }
+        }
+    )
+
+    entry = cache.get_entry_for_calibrant("legacy_cal", "1.0", "model_file")
+
+    assert entry is None
 
 
 def test_load_geometry_from_poni_uses_pyfai_integrator(monkeypatch) -> None:

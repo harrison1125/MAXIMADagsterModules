@@ -20,37 +20,19 @@ class CacheEntry:
     """Represents a validated cache entry for a calibrant scan."""
 
     poni_path: Path
-    """Path to cached PONI file."""
-
+    poni_item_id: str
     calibrant_scan_file_id: str
-    """Girder file ID of calibrant scan that generated this PONI."""
-
     calibrant_scan_file_name: str
-    """Filename of calibrant scan."""
-
     calibrant_scan_updated: str
-    """ISO timestamp when calibrant scan was last updated."""
-
     model_version: str
-    """Model version used for calibration."""
-
     model_source_file_id: str
-    """Girder file ID of the model used."""
-
     updated_at: str
-    """ISO timestamp when cache entry was created."""
 
 
 class CalibrationCache:
     """Manages PONI cache index and validity checking."""
 
     def __init__(self, cache_dir: Path | None = None):
-        """
-        Initialize cache manager.
-        
-        Args:
-            cache_dir: Directory for cache files (default: data/calibrations)
-        """
         self.cache_dir = cache_dir or Path("data") / "calibrations"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.cache_dir / "index.json"
@@ -73,20 +55,11 @@ class CalibrationCache:
         expected_model_version: str,
         expected_model_file_id: str,
     ) -> bool:
-        """
-        Check if cache entry is valid (file exists, versions match).
-        
-        Args:
-            entry: Cache index entry dict
-            expected_model_version: Model version to expect
-            expected_model_file_id: Model file ID to expect
-        
-        Returns:
-            True if cache entry is valid and usable, False otherwise
-        """
+        """Check if cache entry is valid (file exists, versions match)."""
         return bool(
             entry
             and Path(str(entry.get("poni_path", ""))).exists()
+            and entry.get("poni_item_id")
             and str(entry.get("model_version", "")) == expected_model_version
             and str(entry.get("model_source_file_id", "")) == expected_model_file_id
         )
@@ -97,17 +70,7 @@ class CalibrationCache:
         expected_model_version: str,
         expected_model_file_id: str,
     ) -> CacheEntry | None:
-        """
-        Retrieve a valid cache entry if it exists and is valid.
-        
-        Args:
-            calibrant_file_id: ID of calibrant scan
-            expected_model_version: Expected model version
-            expected_model_file_id: Expected model file ID
-        
-        Returns:
-            CacheEntry if valid entry found, None otherwise
-        """
+        """Retrieve a valid cache entry if it exists and is valid."""
         index = self.load_index()
         entry = index.get(calibrant_file_id)
         
@@ -116,6 +79,7 @@ class CalibrationCache:
         
         return CacheEntry(
             poni_path=Path(str(entry["poni_path"])),
+            poni_item_id=str(entry["poni_item_id"]),
             calibrant_scan_file_id=entry["calibrant_scan_file_id"],
             calibrant_scan_file_name=entry["calibrant_scan_file_name"],
             calibrant_scan_updated=entry["calibrant_scan_updated"],
@@ -128,6 +92,7 @@ class CalibrationCache:
         self,
         calibrant_file_id: str,
         poni_path: Path,
+        poni_item_id: str,
         calibrant_scan_file_name: str,
         calibrant_scan_updated: str,
         model_version: str,
@@ -139,6 +104,7 @@ class CalibrationCache:
         Args:
             calibrant_file_id: ID of calibrant scan
             poni_path: Path to PONI file
+            poni_item_id: Girder item ID of PONI file
             calibrant_scan_file_name: Filename of calibrant scan
             calibrant_scan_updated: ISO timestamp of calibrant update
             model_version: Version of model used
@@ -147,6 +113,7 @@ class CalibrationCache:
         index = self.load_index()
         index[calibrant_file_id] = {
             "poni_path": str(poni_path),
+            "poni_item_id": poni_item_id,
             "calibrant_scan_file_id": calibrant_file_id,
             "calibrant_scan_file_name": calibrant_scan_file_name,
             "calibrant_scan_updated": calibrant_scan_updated,
